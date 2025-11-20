@@ -3,7 +3,6 @@ import mysql from "mysql2";
 import cors from "cors";
 import multer from "multer";
 import exceljs from "exceljs";
-import path from "path";
 import fs from "fs";
 
 const app = express();
@@ -82,9 +81,11 @@ app.post("/import/main-groups", upload.single('file'), async (req, res) => {
         for (const { row, rowNumber } of rows) {
             const main_group_code = row.getCell(1).value?.toString() || null;
             const main_group_name = row.getCell(2).value?.toString();
-            const latpl = row.getCell(3).value?.toString() || null;
-            const report = row.getCell(4).value?.toString() || null;
-            const status = row.getCell(5).value?.toString() || 'Active';
+            const tally_report = row.getCell(3).value?.toString() || null;
+            const sub_report = row.getCell(4).value?.toString() || null;
+            const debit_credit = row.getCell(5).value?.toString() || null;
+            const trial_balance = row.getCell(6).value?.toString() || null;
+            const status = row.getCell(7).value?.toString() || 'Active';
 
             if (!main_group_name) {
                 errors.push(`Row ${rowNumber}: Main Group Name is required`);
@@ -92,16 +93,18 @@ app.post("/import/main-groups", upload.single('file'), async (req, res) => {
                 continue;
             }
 
-            const query = `INSERT INTO main_groups (main_group_code, main_group_name, latpl, report, status) 
-                          VALUES (?, ?, ?, ?, ?) 
+            const query = `INSERT INTO main_groups (main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status) 
+                          VALUES (?, ?, ?, ?, ?, ?, ?) 
                           ON DUPLICATE KEY UPDATE 
                           main_group_code = VALUES(main_group_code), 
-                          latpl = VALUES(latpl), 
-                          report = VALUES(report), 
+                          tally_report = VALUES(tally_report), 
+                          sub_report = VALUES(sub_report),
+                          debit_credit = VALUES(debit_credit),
+                          trial_balance = VALUES(trial_balance),
                           status = VALUES(status)`;
             
             try {
-                await db.promise().execute(query, [main_group_code, main_group_name, latpl, report, status]);
+                await db.promise().execute(query, [main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status]);
                 successCount++;
             } catch (err) {
                 errors.push(`Row ${rowNumber}: ${err.message}`);
@@ -154,8 +157,11 @@ app.post("/import/sub-groups", upload.single('file'), async (req, res) => {
         for (const { row, rowNumber } of rows) {
             const sub_group_code = row.getCell(1).value?.toString() || null;
             const sub_group_name = row.getCell(2).value?.toString();
-            const report = row.getCell(3).value?.toString() || null;
-            const status = row.getCell(4).value?.toString() || 'Active';
+            const tally_report = row.getCell(3).value?.toString() || null;
+             const sub_report = row.getCell(4).value?.toString() || null;
+            const debit_credit = row.getCell(5).value?.toString() || null;
+            const trial_balance = row.getCell(6).value?.toString() || null;
+            const status = row.getCell(7).value?.toString() || 'Active';
 
             if (!sub_group_name) {
                 errors.push(`Row ${rowNumber}: Sub Group Name is required`);
@@ -163,15 +169,18 @@ app.post("/import/sub-groups", upload.single('file'), async (req, res) => {
                 continue;
             }
 
-            const query = `INSERT INTO sub_groups (sub_group_code, sub_group_name, report, status) 
-                          VALUES (?, ?, ?, ?) 
+            const query = `INSERT INTO sub_groups (sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status) 
+                          VALUES (?, ?, ?, ?, ?, ?, ?) 
                           ON DUPLICATE KEY UPDATE 
                           sub_group_code = VALUES(sub_group_code), 
-                          report = VALUES(report), 
+                          tally_report = VALUES(tally_report),
+                          sub_report = VALUES(sub_report),
+                          debit_credit = VALUES(debit_credit),
+                          trial_balance = VALUES(trial_balance), 
                           status = VALUES(status)`;
             
             try {
-                await db.promise().execute(query, [sub_group_code, sub_group_name, report, status]);
+                await db.promise().execute(query, [sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status]);
                 successCount++;
             } catch (err) {
                 errors.push(`Row ${rowNumber}: ${err.message}`);
@@ -217,9 +226,11 @@ app.post("/import/ledgers", upload.single('file'), async (req, res) => {
         for (const { row, rowNumber } of rows) {
             const ledger_code = row.getCell(1).value?.toString() || null;
             const ledger_name = row.getCell(2).value?.toString();
-            const report = row.getCell(3).value?.toString() || null;
-            const status = row.getCell(4).value?.toString() || 'Active';
-            const link_status = row.getCell(5).value?.toString() || null;
+            const tally_report = row.getCell(3).value?.toString() || null;
+            const debit_credit = row.getCell(4).value?.toString() || null;
+            const trial_balance = row.getCell(5).value?.toString() || null;
+            const status = row.getCell(6).value?.toString() || 'Active';
+            const link_status = row.getCell(7).value?.toString() || null;
 
             if (!ledger_name) {
                 errors.push(`Row ${rowNumber}: Ledger Name is required`);
@@ -227,16 +238,18 @@ app.post("/import/ledgers", upload.single('file'), async (req, res) => {
                 continue;
             }
 
-            const query = `INSERT INTO ledgers (ledger_code, ledger_name, report, status, link_status) 
-                          VALUES (?, ?, ?, ?, ?) 
+            const query = `INSERT INTO ledgers (ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status) 
+                          VALUES (?, ?, ?, ?, ?, ?, ?) 
                           ON DUPLICATE KEY UPDATE 
                           ledger_code = VALUES(ledger_code), 
-                          report = VALUES(report), 
+                          tally_report = VALUES(tally_report),
+                          debit_credit = VALUES(debit_credit),
+                          trial_balance = VALUES(trial_balance), 
                           status = VALUES(status),
                           link_status = VALUES(link_status)`;
             
             try {
-                await db.promise().execute(query, [ledger_code, ledger_name, report, status, link_status]);
+                await db.promise().execute(query, [ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status]);
                 successCount++;
             } catch (err) {
                 errors.push(`Row ${rowNumber}: ${err.message}`);
@@ -300,75 +313,6 @@ app.post("/import/divisions", upload.single('file'), async (req, res) => {
             
             try {
                 await db.promise().execute(query, [division_code, division_name, report, status]);
-                successCount++;
-            } catch (err) {
-                errors.push(`Row ${rowNumber}: ${err.message}`);
-                errorCount++;
-            }
-        }
-
-        fs.unlinkSync(req.file.path);
-        res.json({ message: 'Import completed', successCount, errorCount, errors });
-
-    } catch (error) {
-        if (req.file) fs.unlinkSync(req.file.path);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Import route for connect_consolidates
-app.post("/import/connect-consolidates", upload.single('file'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
-        }
-
-        const workbook = new exceljs.Workbook();
-        await workbook.xlsx.readFile(req.file.path);
-        const worksheet = workbook.getWorksheet(1);
-        
-        if (!worksheet) {
-            return res.status(400).json({ error: 'No worksheet found in the Excel file' });
-        }
-
-        let successCount = 0;
-        let errorCount = 0;
-        const errors = [];
-
-        const rows = [];
-        worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-            if (rowNumber > 1) {
-                rows.push({ row, rowNumber });
-            }
-        });
-
-        for (const { row, rowNumber } of rows) {
-            const serial_no = row.getCell(1).value ? parseInt(row.getCell(1).value) : null;
-            const ledger_code = row.getCell(2).value?.toString() || null;
-            const ledger_name = row.getCell(3).value?.toString();
-            const sub_group_code = row.getCell(4).value?.toString() || null;
-            const sub_group_name = row.getCell(5).value?.toString() || null;
-            const main_group_code = row.getCell(6).value?.toString() || null;
-            const main_group_name = row.getCell(7).value?.toString() || null;
-
-            if (!ledger_name) {
-                errors.push(`Row ${rowNumber}: Ledger Name is required`);
-                errorCount++;
-                continue;
-            }
-
-            const query = `INSERT INTO connect_consolidates (serial_no, ledger_code, ledger_name, sub_group_code, sub_group_name, main_group_code, main_group_name) 
-                          VALUES (?, ?, ?, ?, ?, ?, ?) 
-                          ON DUPLICATE KEY UPDATE 
-                          serial_no = VALUES(serial_no), 
-                          ledger_code = VALUES(ledger_code), 
-                          sub_group_code = VALUES(sub_group_code), 
-                          sub_group_name = VALUES(sub_group_name), 
-                          main_group_code = VALUES(main_group_code), 
-                          main_group_name = VALUES(main_group_name)`;
-            
-            try {
-                await db.promise().execute(query, [serial_no, ledger_code, ledger_name, sub_group_code, sub_group_name, main_group_code, main_group_name]);
                 successCount++;
             } catch (err) {
                 errors.push(`Row ${rowNumber}: ${err.message}`);
@@ -494,6 +438,15 @@ app.get("/divisions", (req, res) => {
 app.get("/connect_consolidates", (req, res) => {
     db.query("SELECT * FROM connect_consolidates", (err, results) => {
         if (err) return res.status(500).json({ error: err });
+        res.json(results);
+    });
+});
+
+// Get all consolidated data
+app.get("/consolidated", (req, res) => {
+    const sql = "SELECT * FROM consolidated_display ORDER BY serial_no";
+    db.query(sql, (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
         res.json(results);
     });
 });
