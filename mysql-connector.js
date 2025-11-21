@@ -50,7 +50,7 @@ if (!fs.existsSync('uploads')) {
     fs.mkdirSync('uploads');
 }
 
-// Import route for main_groups (with latpl column)
+// Import route for main_groups
 app.post("/import/main-groups", upload.single('file'), async (req, res) => {
     try {
         if (!req.file) {
@@ -158,7 +158,7 @@ app.post("/import/sub-groups", upload.single('file'), async (req, res) => {
             const sub_group_code = row.getCell(1).value?.toString() || null;
             const sub_group_name = row.getCell(2).value?.toString();
             const tally_report = row.getCell(3).value?.toString() || null;
-             const sub_report = row.getCell(4).value?.toString() || null;
+            const sub_report = row.getCell(4).value?.toString() || null;
             const debit_credit = row.getCell(5).value?.toString() || null;
             const trial_balance = row.getCell(6).value?.toString() || null;
             const status = row.getCell(7).value?.toString() || 'Active';
@@ -329,6 +329,72 @@ app.post("/import/divisions", upload.single('file'), async (req, res) => {
     }
 });
 
+// Import route for connect_consolidates
+app.post("/import/connect-consolidates", upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const workbook = new exceljs.Workbook();
+        await workbook.xlsx.readFile(req.file.path);
+        const worksheet = workbook.getWorksheet(1);
+        
+        if (!worksheet) {
+            return res.status(400).json({ error: 'No worksheet found in the Excel file' });
+        }
+
+        let successCount = 0;
+        let errorCount = 0;
+        const errors = [];
+
+        const rows = [];
+        worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+            if (rowNumber > 1) {
+                rows.push({ row, rowNumber });
+            }
+        });
+
+        for (const { row, rowNumber } of rows) {
+            const serial_no = row.getCell(1).value || 0;
+            const ledger_code = row.getCell(2).value?.toString() || null;
+            const sub_group_code = row.getCell(3).value?.toString() || null;
+            const main_group_code = row.getCell(4).value?.toString() || null;
+            const status = row.getCell(5).value?.toString() || 'Active';
+
+            if (!ledger_code && !sub_group_code && !main_group_code) {
+                errors.push(`Row ${rowNumber}: At least one code (Ledger, Sub Group, or Main Group) is required`);
+                errorCount++;
+                continue;
+            }
+
+            const query = `INSERT INTO connect_consolidates (serial_no, ledger_code, sub_group_code, main_group_code, status) 
+                          VALUES (?, ?, ?, ?, ?) 
+                          ON DUPLICATE KEY UPDATE 
+                          serial_no = VALUES(serial_no),
+                          ledger_code = VALUES(ledger_code),
+                          sub_group_code = VALUES(sub_group_code),
+                          main_group_code = VALUES(main_group_code),
+                          status = VALUES(status)`;
+            
+            try {
+                await db.promise().execute(query, [serial_no, ledger_code, sub_group_code, main_group_code, status]);
+                successCount++;
+            } catch (err) {
+                errors.push(`Row ${rowNumber}: ${err.message}`);
+                errorCount++;
+            }
+        }
+
+        fs.unlinkSync(req.file.path);
+        res.json({ message: 'Import completed', successCount, errorCount, errors });
+
+    } catch (error) {
+        if (req.file) fs.unlinkSync(req.file.path);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Download template endpoints
 app.get("/download-template/:type", async (req, res) => {
     try {
@@ -342,20 +408,20 @@ app.get("/download-template/:type", async (req, res) => {
 
         switch (type) {
             case 'main-groups':
-                headers = ['main_group_code', 'main_group_name', 'latpl', 'report', 'status'];
-                sampleData = ['MG001', 'Current Assets', 'LATPL001', 'Balance Sheet', 'Active'];
+                headers = ['main_group_code', 'main_group_name', 'tally_report', 'sub_report', 'debit_credit', 'trial_balance', 'status'];
+                sampleData = ['MG001', 'Current Assets', 'Balance Sheet', 'Sub Report', 'Debit', 'Trial Balance', 'Active'];
                 fileName = 'main_groups_template.xlsx';
                 break;
                 
             case 'sub-groups':
-                headers = ['sub_group_code', 'sub_group_name', 'report', 'status'];
-                sampleData = ['SG001', 'Bank Accounts', 'Profit & Loss', 'Active'];
+                headers = ['sub_group_code', 'sub_group_name', 'tally_report', 'sub_report', 'debit_credit', 'trial_balance', 'status'];
+                sampleData = ['SG001', 'Bank Accounts', 'Balance Sheet', 'Sub Report', 'Debit', 'Trial Balance', 'Active'];
                 fileName = 'sub_groups_template.xlsx';
                 break;
                 
             case 'ledgers':
-                headers = ['ledger_code', 'ledger_name', 'report', 'status', 'link_status'];
-                sampleData = ['L001', 'HDFC Bank', 'Trial Balance', 'Active', 'Linked'];
+                headers = ['ledger_code', 'ledger_name', 'tally_report', 'debit_credit', 'trial_balance', 'status', 'link_status'];
+                sampleData = ['L001', 'HDFC Bank', 'Balance Sheet', 'Debit', 'Trial Balance', 'Active', 'Linked'];
                 fileName = 'ledgers_template.xlsx';
                 break;
                 
@@ -366,8 +432,8 @@ app.get("/download-template/:type", async (req, res) => {
                 break;
                 
             case 'connect-consolidates':
-                headers = ['serial_no', 'ledger_code', 'ledger_name', 'sub_group_code', 'sub_group_name', 'main_group_code', 'main_group_name'];
-                sampleData = [1, 'L001', 'HDFC Bank', 'SG001', 'Bank Accounts', 'MG001', 'Current Assets'];
+                headers = ['serial_no', 'ledger_code', 'sub_group_code', 'main_group_code', 'status'];
+                sampleData = [1, 'L001', 'SG001', 'MG001', 'Active'];
                 fileName = 'connect_consolidates_template.xlsx';
                 break;
                 
@@ -406,48 +472,141 @@ app.get("/download-template/:type", async (req, res) => {
     }
 });
 
-// Your existing routes (with correct table names)
+// CRUD routes for main_groups
 app.get("/main_groups", (req, res) => {
-    db.query("SELECT * FROM main_groups", (err, results) => {
+    db.query("SELECT * FROM main_groups ORDER BY main_group_code", (err, results) => {
         if (err) return res.status(500).json({ error: err });
         res.json(results);
     });
 });
 
+app.post("/main_groups", (req, res) => {
+    const { main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status } = req.body;
+    const query = "INSERT INTO main_groups (main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    db.query(query, [main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status], (err, results) => {
+        if (err) return res.status(500).json({ error: err });
+        res.json({ message: "Main group created successfully", id: results.insertId });
+    });
+});
+
+// CRUD routes for sub_groups
 app.get("/sub_groups", (req, res) => {
-    db.query("SELECT * FROM sub_groups", (err, results) => {
+    db.query("SELECT * FROM sub_groups ORDER BY sub_group_code", (err, results) => {
         if (err) return res.status(500).json({ error: err });
         res.json(results);
     });
 });
 
+app.post("/sub_groups", (req, res) => {
+    const { sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status } = req.body;
+    const query = "INSERT INTO sub_groups (sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    db.query(query, [sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status], (err, results) => {
+        if (err) return res.status(500).json({ error: err });
+        res.json({ message: "Sub group created successfully", id: results.insertId });
+    });
+});
+
+// CRUD routes for ledgers
 app.get("/ledgers", (req, res) => {
-    db.query("SELECT * FROM ledgers", (err, results) => {
+    db.query("SELECT * FROM ledgers ORDER BY ledger_code", (err, results) => {
         if (err) return res.status(500).json({ error: err });
         res.json(results);
     });
 });
 
+app.post("/ledgers", (req, res) => {
+    const { ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status } = req.body;
+    const query = "INSERT INTO ledgers (ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    db.query(query, [ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status], (err, results) => {
+        if (err) return res.status(500).json({ error: err });
+        res.json({ message: "Ledger created successfully", id: results.insertId });
+    });
+});
+
+// CRUD routes for divisions
 app.get("/divisions", (req, res) => {
-    db.query("SELECT * FROM divisions", (err, results) => {
+    db.query("SELECT * FROM divisions ORDER BY division_code", (err, results) => {
         if (err) return res.status(500).json({ error: err });
         res.json(results);
     });
 });
 
+app.post("/divisions", (req, res) => {
+    const { division_code, division_name, report, status } = req.body;
+    const query = "INSERT INTO divisions (division_code, division_name, report, status) VALUES (?, ?, ?, ?)";
+    db.query(query, [division_code, division_name, report, status], (err, results) => {
+        if (err) return res.status(500).json({ error: err });
+        res.json({ message: "Division created successfully", id: results.insertId });
+    });
+});
+
+// CRUD routes for connect_consolidates
 app.get("/connect_consolidates", (req, res) => {
-    db.query("SELECT * FROM connect_consolidates", (err, results) => {
+    db.query("SELECT * FROM connect_consolidates ORDER BY serial_no", (err, results) => {
         if (err) return res.status(500).json({ error: err });
         res.json(results);
     });
 });
 
-// Get all consolidated data
+app.post("/connect_consolidates", (req, res) => {
+    const { serial_no, ledger_code, sub_group_code, main_group_code, status } = req.body;
+    const query = "INSERT INTO connect_consolidates (serial_no, ledger_code, sub_group_code, main_group_code, status) VALUES (?, ?, ?, ?, ?)";
+    db.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status], (err, results) => {
+        if (err) return res.status(500).json({ error: err });
+        res.json({ message: "Consolidation record created successfully", id: results.insertId });
+    });
+});
+
+// Get all consolidated data using the LEFT JOIN view
 app.get("/consolidated", (req, res) => {
     const sql = "SELECT * FROM consolidated_display ORDER BY serial_no";
     db.query(sql, (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(results);
+    });
+});
+
+// Create new consolidation record
+app.post("/consolidated", (req, res) => {
+    const { serial_no, ledger_code, sub_group_code, main_group_code, status } = req.body;
+    
+    const query = `
+        INSERT INTO connect_consolidates (serial_no, ledger_code, sub_group_code, main_group_code, status) 
+        VALUES (?, ?, ?, ?, ?)
+    `;
+    
+    db.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Consolidation record created successfully", id: results.insertId });
+    });
+});
+
+// Update consolidation record
+app.put("/consolidated/:id", (req, res) => {
+    const { id } = req.params;
+    const { serial_no, ledger_code, sub_group_code, main_group_code, status } = req.body;
+    
+    const query = `
+        UPDATE connect_consolidates 
+        SET serial_no = ?, ledger_code = ?, sub_group_code = ?, main_group_code = ?, status = ?
+        WHERE id = ?
+    `;
+    
+    db.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status, id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Consolidation record updated successfully" });
+    });
+});
+
+// Delete consolidation record
+app.delete("/consolidated/:id", (req, res) => {
+    const { id } = req.params;
+    
+    const query = "DELETE FROM connect_consolidates WHERE id = ?";
+    
+    db.query(query, [id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Consolidation record deleted successfully" });
     });
 });
 
