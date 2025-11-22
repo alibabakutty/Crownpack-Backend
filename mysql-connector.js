@@ -395,83 +395,6 @@ app.post("/import/connect-consolidates", upload.single('file'), async (req, res)
     }
 });
 
-// Download template endpoints
-app.get("/download-template/:type", async (req, res) => {
-    try {
-        const { type } = req.params;
-        const workbook = new exceljs.Workbook();
-        const worksheet = workbook.addWorksheet('Template');
-        
-        let headers = [];
-        let sampleData = [];
-        let fileName = '';
-
-        switch (type) {
-            case 'main-groups':
-                headers = ['main_group_code', 'main_group_name', 'tally_report', 'sub_report', 'debit_credit', 'trial_balance', 'status'];
-                sampleData = ['MG001', 'Current Assets', 'Balance Sheet', 'Sub Report', 'Debit', 'Trial Balance', 'Active'];
-                fileName = 'main_groups_template.xlsx';
-                break;
-                
-            case 'sub-groups':
-                headers = ['sub_group_code', 'sub_group_name', 'tally_report', 'sub_report', 'debit_credit', 'trial_balance', 'status'];
-                sampleData = ['SG001', 'Bank Accounts', 'Balance Sheet', 'Sub Report', 'Debit', 'Trial Balance', 'Active'];
-                fileName = 'sub_groups_template.xlsx';
-                break;
-                
-            case 'ledgers':
-                headers = ['ledger_code', 'ledger_name', 'tally_report', 'debit_credit', 'trial_balance', 'status', 'link_status'];
-                sampleData = ['L001', 'HDFC Bank', 'Balance Sheet', 'Debit', 'Trial Balance', 'Active', 'Linked'];
-                fileName = 'ledgers_template.xlsx';
-                break;
-                
-            case 'divisions':
-                headers = ['division_code', 'division_name', 'report', 'status'];
-                sampleData = ['D001', 'Manufacturing Division', 'Division Report', 'Active'];
-                fileName = 'divisions_template.xlsx';
-                break;
-                
-            case 'connect-consolidates':
-                headers = ['serial_no', 'ledger_code', 'sub_group_code', 'main_group_code', 'status'];
-                sampleData = [1, 'L001', 'SG001', 'MG001', 'Active'];
-                fileName = 'connect_consolidates_template.xlsx';
-                break;
-                
-            default:
-                return res.status(400).json({ error: 'Invalid template type' });
-        }
-
-        // Add headers
-        worksheet.addRow(headers);
-        
-        // Add sample data
-        worksheet.addRow(sampleData);
-        
-        // Style the header row
-        const headerRow = worksheet.getRow(1);
-        headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-        headerRow.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FF0070C0' }
-        };
-
-        // Set column widths
-        worksheet.columns = headers.map(() => ({ width: 20 }));
-
-        // Set response headers
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-
-        // Write to response
-        await workbook.xlsx.write(res);
-        res.end();
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // CRUD routes for main_groups
 app.get("/main_groups", (req, res) => {
     db.query("SELECT * FROM main_groups ORDER BY main_group_code", (err, results) => {
@@ -566,6 +489,26 @@ app.get("/consolidated", (req, res) => {
     });
 });
 
+// Get specific consolidated data by ledger_code
+app.get("/consolidated", (req, res) => {
+    const { ledger_code } = req.query;
+
+    let sql = "SELECT * FROM consolidated_display";
+    let params = [];
+
+    if (ledger_code) {
+        sql += "WHERE ledger_code = ? ORDER BY serial_no";
+        params.push(ledger_code);
+    } else {
+        sql += " ORDER BY serial_no";
+    }
+
+    db.query(sql, params, (err, results) => {
+        if (err) return res.status(500).json({ error : err.message });
+        res.json(results);
+    })
+});
+
 // Create new consolidation record
 app.post("/consolidated", (req, res) => {
     const { serial_no, ledger_code, sub_group_code, main_group_code, status } = req.body;
@@ -607,6 +550,144 @@ app.delete("/consolidated/:id", (req, res) => {
     db.query(query, [id], (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: "Consolidation record deleted successfully" });
+    });
+});
+
+// UPGRADED VERSION WITH MERGE AND DEMERGE CONCEPT
+// Enhanced merge endpoint
+app.post("/consolidated/merge", async (req, res) => {
+    const { ledger_code, sub_group_code, main_group_code } = req.body;
+    
+    try {
+        // Get sub_group and main_group names
+        let sub_group_name = null;
+        let main_group_name = null;
+
+        if (sub_group_code) {
+            const subGroupResult = await db.promise().execute(
+                "SELECT sub_group_name FROM sub_groups WHERE sub_group_code = ?",
+                [sub_group_code]
+            );
+            sub_group_name = subGroupResult[0][0]?.sub_group_name || null;
+        }
+
+        if (main_group_code) {
+            const mainGroupResult = await db.promise().execute(
+                "SELECT main_group_name FROM main_groups WHERE main_group_code = ?",
+                [main_group_code]
+            );
+            main_group_name = mainGroupResult[0][0]?.main_group_name || null;
+        }
+
+        // Update ledger table with consolidation data
+        await db.promise().execute(
+            `UPDATE ledgers 
+             SET link_status = 'active',
+                 consolidated_sub_group_code = ?,
+                 consolidated_sub_group_name = ?,
+                 consolidated_main_group_code = ?,
+                 consolidated_main_group_name = ?,
+                 consolidation_status = 'active'
+             WHERE ledger_code = ?`,
+            [sub_group_code, sub_group_name, main_group_code, main_group_name, ledger_code]
+        );
+
+        res.json({ 
+            message: "Ledger merged successfully", 
+            ledger_code,
+            sub_group_code, 
+            sub_group_name,
+            main_group_code,
+            main_group_name
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Enhanced demerge endpoint
+app.post("/consolidated/demerge/:ledger_code", async (req, res) => {
+    const { ledger_code } = req.params;
+    
+    try {
+        // Clear consolidation data from ledger table
+        await db.promise().execute(
+            `UPDATE ledgers 
+             SET link_status = 'inactive',
+                 consolidated_sub_group_code = NULL,
+                 consolidated_sub_group_name = NULL,
+                 consolidated_main_group_code = NULL,
+                 consolidated_main_group_name = NULL,
+                 consolidation_status = 'inactive'
+             WHERE ledger_code = ?`,
+            [ledger_code]
+        );
+
+        res.json({ 
+            message: "Ledger demerged successfully", 
+            ledger_code 
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get merged ledgers (active consolidation)
+app.get("/consolidated/active", (req, res) => {
+    const sql = `
+        SELECT 
+            l.*,
+            cc.sub_group_code,
+            sg.sub_group_name,
+            cc.main_group_code,
+            mg.main_group_name,
+            cc.status as consolidation_status
+        FROM ledgers l
+        INNER JOIN connect_consolidates cc ON l.ledger_code = cc.ledger_code AND cc.status = 'active'
+        LEFT JOIN sub_groups sg ON cc.sub_group_code = sg.sub_group_code
+        LEFT JOIN main_groups mg ON cc.main_group_code = mg.main_group_code
+        ORDER BY cc.serial_no
+    `;
+    
+    db.query(sql, (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
+    });
+});
+
+// Get demerged ledgers (inactive consolidation)
+app.get("/consolidated/inactive", (req, res) => {
+    const sql = `
+        SELECT 
+            l.*,
+            'inactive' as consolidation_status
+        FROM ledgers l
+        WHERE l.ledger_code NOT IN (
+            SELECT ledger_code FROM connect_consolidates WHERE status = 'active'
+        )
+        OR l.ledger_code IN (
+            SELECT ledger_code FROM connect_consolidates WHERE status = 'inactive'
+        )
+        ORDER BY l.ledger_code
+    `;
+    
+    db.query(sql, (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
+    });
+});
+
+// Get consolidated data for specific ledger_code
+app.get("/consolidated/ledger/:ledger_code", (req, res) => {
+    const { ledger_code } = req.params;
+    
+    const sql = "SELECT * FROM consolidated_display WHERE ledger_code = ? ORDER BY serial_no";
+    
+    db.query(sql, [ledger_code], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
     });
 });
 
