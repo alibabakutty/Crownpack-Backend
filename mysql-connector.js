@@ -266,69 +266,6 @@ app.post("/import/ledgers", upload.single('file'), async (req, res) => {
     }
 });
 
-// Import route for divisions
-app.post("/import/divisions", upload.single('file'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
-        }
-
-        const workbook = new exceljs.Workbook();
-        await workbook.xlsx.readFile(req.file.path);
-        const worksheet = workbook.getWorksheet(1);
-        
-        if (!worksheet) {
-            return res.status(400).json({ error: 'No worksheet found in the Excel file' });
-        }
-
-        let successCount = 0;
-        let errorCount = 0;
-        const errors = [];
-
-        const rows = [];
-        worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-            if (rowNumber > 1) {
-                rows.push({ row, rowNumber });
-            }
-        });
-
-        for (const { row, rowNumber } of rows) {
-            const division_code = row.getCell(1).value?.toString() || null;
-            const division_name = row.getCell(2).value?.toString();
-            const report = row.getCell(3).value?.toString() || null;
-            const status = row.getCell(4).value?.toString() || 'Active';
-
-            if (!division_name) {
-                errors.push(`Row ${rowNumber}: Division Name is required`);
-                errorCount++;
-                continue;
-            }
-
-            const query = `INSERT INTO divisions (division_code, division_name, report, status) 
-                          VALUES (?, ?, ?, ?) 
-                          ON DUPLICATE KEY UPDATE 
-                          division_code = VALUES(division_code), 
-                          report = VALUES(report), 
-                          status = VALUES(status)`;
-            
-            try {
-                await db.promise().execute(query, [division_code, division_name, report, status]);
-                successCount++;
-            } catch (err) {
-                errors.push(`Row ${rowNumber}: ${err.message}`);
-                errorCount++;
-            }
-        }
-
-        fs.unlinkSync(req.file.path);
-        res.json({ message: 'Import completed', successCount, errorCount, errors });
-
-    } catch (error) {
-        if (req.file) fs.unlinkSync(req.file.path);
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // Import route for connect_consolidates
 app.post("/import/connect-consolidates", upload.single('file'), async (req, res) => {
     try {
@@ -448,7 +385,7 @@ app.post("/ledgers", (req, res) => {
 
 // CRUD routes for divisions
 app.get("/divisions", (req, res) => {
-    db.query("SELECT * FROM divisions ORDER BY division_code", (err, results) => {
+    db.query("SELECT * FROM divisions ORDER BY division_name", (err, results) => {
         if (err) return res.status(500).json({ error: err });
         res.json(results);
     });
@@ -456,7 +393,7 @@ app.get("/divisions", (req, res) => {
 
 app.post("/divisions", (req, res) => {
     const { division_code, division_name, report, status } = req.body;
-    const query = "INSERT INTO divisions (division_code, division_name, report, status) VALUES (?, ?, ?, ?)";
+    const query = "INSERT INTO divisions (division_name) VALUES (?)";
     db.query(query, [division_code, division_name, report, status], (err, results) => {
         if (err) return res.status(500).json({ error: err });
         res.json({ message: "Division created successfully", id: results.insertId });
@@ -480,7 +417,7 @@ app.post("/connect_consolidates", (req, res) => {
     });
 });
 
-// Get all consolidated data using the LEFT JOIN view
+// Route 1 → all consolidated
 app.get("/consolidated", (req, res) => {
     const sql = "SELECT * FROM consolidated_display ORDER BY serial_no";
     db.query(sql, (err, results) => {
@@ -489,15 +426,15 @@ app.get("/consolidated", (req, res) => {
     });
 });
 
-// Get specific consolidated data by ledger_code
-app.get("/consolidated", (req, res) => {
+// Route 2 → consolidated for specific ledger
+app.get("/consolidated/by-ledger", (req, res) => {
     const { ledger_code } = req.query;
 
     let sql = "SELECT * FROM consolidated_display";
     let params = [];
 
     if (ledger_code) {
-        sql += "WHERE ledger_code = ? ORDER BY serial_no";
+        sql += " WHERE ledger_code = ? ORDER BY serial_no";
         params.push(ledger_code);
     } else {
         sql += " ORDER BY serial_no";
@@ -699,6 +636,6 @@ app.use((error, req, res, next) => {
     res.status(500).json({ error: error.message });
 });
 
-app.listen(5000, () => {
-    console.log("Backend running on http://localhost:5000");
+app.listen(7000, () => {
+    console.log("Backend running on http://localhost:7000");
 });
