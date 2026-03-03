@@ -391,12 +391,74 @@ app.get("/divisions", (req, res) => {
     });
 });
 
+// app.post("/divisions", (req, res) => {
+//     const { division_name } = req.body;
+//     const query = "INSERT INTO divisions (division_name) VALUES (?)";
+//     db.query(query, [division_name], (err, results) => {
+//         if (err) return res.status(500).json({ error: err });
+//         res.json({ message: "Division created successfully", id: results.insertId });
+//     });
+// });
+
 app.post("/divisions", (req, res) => {
-    const { division_code, division_name, report, status } = req.body;
-    const query = "INSERT INTO divisions (division_name) VALUES (?)";
-    db.query(query, [division_code, division_name, report, status], (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json({ message: "Division created successfully", id: results.insertId });
+    const { divisions } = req.body;
+
+    if (!divisions || divisions.length === 0) {
+        return res.status(400).json({ message: "No divisions provided" });
+    }
+
+    // Create (?, ?, ?, ?) dynamically
+    const placeholders = divisions.map(() => "(?)").join(",");
+
+    const query = `INSERT INTO divisions (division_name) VALUES ${placeholders}`;
+
+    db.query(query, divisions, (err, results) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ error: err });
+        }
+
+        res.json({
+            message: "Divisions inserted successfully",
+            inserted: results.affectedRows
+        });
+    });
+});
+
+app.put("/divisions", (req, res) => {
+    const { divisions } = req.body;
+
+    if (!divisions || divisions.length === 0) {
+        return res.status(400).json({ message: "No divisions provided" });
+    }
+
+    const ids = divisions.map(d => d.id);
+
+    // Build CASE statement
+    let caseStatement = "CASE id ";
+    divisions.forEach(d => {
+        caseStatement += `WHEN ${d.id} THEN ? `;
+    });
+    caseStatement += "END";
+
+    const query = `
+        UPDATE divisions
+        SET division_name = ${caseStatement}
+        WHERE id IN (${ids.join(",")})
+    `;
+
+    const values = divisions.map(d => d.division_name);
+
+    db.query(query, values, (err, results) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ error: err });
+        }
+
+        res.json({
+            message: "Divisions updated successfully",
+            updated: results.affectedRows
+        });
     });
 });
 
