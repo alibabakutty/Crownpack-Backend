@@ -4,10 +4,13 @@ import cors from "cors";
 import multer from "multer";
 import exceljs from "exceljs";
 import fs from "fs";
+import dotenv from "dotenv";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+dotenv.config();
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
@@ -30,20 +33,15 @@ const upload = multer({
     }
 });
 
-const db = mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: 'Rup@@.123$',
-    database: 'crownpack_database'
-});
-
-db.connect((err) => {
-    if (err) {
-        console.error("❌ Database connection failed:", err);
-    } else {
-        console.log("✅ Connected to MySQL Database");
-    }
-});
+const pool = mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+}).promise();
 
 // Create uploads directory if not exists
 if (!fs.existsSync('uploads')) {
@@ -60,7 +58,7 @@ app.post("/import/main-groups", upload.single('file'), async (req, res) => {
         const workbook = new exceljs.Workbook();
         await workbook.xlsx.readFile(req.file.path);
         const worksheet = workbook.getWorksheet(1);
-        
+
         if (!worksheet) {
             return res.status(400).json({ error: 'No worksheet found in the Excel file' });
         }
@@ -102,9 +100,9 @@ app.post("/import/main-groups", upload.single('file'), async (req, res) => {
                           debit_credit = VALUES(debit_credit),
                           trial_balance = VALUES(trial_balance),
                           status = VALUES(status)`;
-            
+
             try {
-                await db.promise().execute(query, [main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status]);
+                await pool.execute(query, [main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status]);
                 successCount++;
             } catch (err) {
                 errors.push(`Row ${rowNumber}: ${err.message}`);
@@ -138,7 +136,7 @@ app.post("/import/sub-groups", upload.single('file'), async (req, res) => {
         const workbook = new exceljs.Workbook();
         await workbook.xlsx.readFile(req.file.path);
         const worksheet = workbook.getWorksheet(1);
-        
+
         if (!worksheet) {
             return res.status(400).json({ error: 'No worksheet found in the Excel file' });
         }
@@ -178,9 +176,9 @@ app.post("/import/sub-groups", upload.single('file'), async (req, res) => {
                           debit_credit = VALUES(debit_credit),
                           trial_balance = VALUES(trial_balance), 
                           status = VALUES(status)`;
-            
+
             try {
-                await db.promise().execute(query, [sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status]);
+                await pool.execute(query, [sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status]);
                 successCount++;
             } catch (err) {
                 errors.push(`Row ${rowNumber}: ${err.message}`);
@@ -207,7 +205,7 @@ app.post("/import/ledgers", upload.single('file'), async (req, res) => {
         const workbook = new exceljs.Workbook();
         await workbook.xlsx.readFile(req.file.path);
         const worksheet = workbook.getWorksheet(1);
-        
+
         if (!worksheet) {
             return res.status(400).json({ error: 'No worksheet found in the Excel file' });
         }
@@ -247,9 +245,9 @@ app.post("/import/ledgers", upload.single('file'), async (req, res) => {
                           trial_balance = VALUES(trial_balance), 
                           status = VALUES(status),
                           link_status = VALUES(link_status)`;
-            
+
             try {
-                await db.promise().execute(query, [ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status]);
+                await pool.execute(query, [ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status]);
                 successCount++;
             } catch (err) {
                 errors.push(`Row ${rowNumber}: ${err.message}`);
@@ -276,7 +274,7 @@ app.post("/import/connect-consolidates", upload.single('file'), async (req, res)
         const workbook = new exceljs.Workbook();
         await workbook.xlsx.readFile(req.file.path);
         const worksheet = workbook.getWorksheet(1);
-        
+
         if (!worksheet) {
             return res.status(400).json({ error: 'No worksheet found in the Excel file' });
         }
@@ -313,9 +311,9 @@ app.post("/import/connect-consolidates", upload.single('file'), async (req, res)
                           sub_group_code = VALUES(sub_group_code),
                           main_group_code = VALUES(main_group_code),
                           status = VALUES(status)`;
-            
+
             try {
-                await db.promise().execute(query, [serial_no, ledger_code, sub_group_code, main_group_code, status]);
+                await pool.execute(query, [serial_no, ledger_code, sub_group_code, main_group_code, status]);
                 successCount++;
             } catch (err) {
                 errors.push(`Row ${rowNumber}: ${err.message}`);
@@ -333,72 +331,143 @@ app.post("/import/connect-consolidates", upload.single('file'), async (req, res)
 });
 
 // CRUD routes for main_groups
-app.get("/main_groups", (req, res) => {
-    db.query("SELECT * FROM main_groups ORDER BY main_group_code", (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results);
-    });
+app.get("/main_groups", async (req, res) => {
+    try {
+
+        const [rows] = await pool.query("SELECT * FROM main_groups");
+
+        res.json({
+            success: true,
+            data: rows
+        });
+
+    } catch (error) {
+
+        console.error("❌ Error fetching main groups:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
+
+    }
 });
 
-app.post("/main_groups", (req, res) => {
-    const { main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status } = req.body;
-    const query = "INSERT INTO main_groups (main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status) VALUES (?, ?, ?, ?, ?, ?, ?)";
-    db.query(query, [main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status], (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json({ message: "Main group created successfully", id: results.insertId });
-    });
+app.post("/main_groups", async (req, res) => {
+
+    try {
+
+        const { main_group_code, main_group_name } = req.body;
+
+        const sql = `
+      INSERT INTO main_groups 
+      (main_group_code, main_group_name) 
+      VALUES (?, ?)
+    `;
+
+        const [result] = await pool.query(sql, [
+            main_group_code,
+            main_group_name
+        ]);
+
+        res.json({
+            success: true,
+            message: "Main group created successfully",
+            id: result.insertId
+        });
+
+    } catch (error) {
+
+        console.error("Error inserting main group:", error);
+
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+
+    }
+
 });
 
 // CRUD routes for sub_groups
-app.get("/sub_groups", (req, res) => {
-    db.query("SELECT * FROM sub_groups ORDER BY sub_group_code", (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results);
-    });
+app.get("/sub_groups", async (req, res) => {
+
+    try {
+
+        const [rows] = await pool.query("SELECT * FROM sub_groups");
+
+        res.json({
+            success: true,
+            data: rows
+        });
+
+    } catch (error) {
+
+        res.status(500).json({ error: error.message });
+
+    }
+
 });
 
 app.post("/sub_groups", (req, res) => {
     const { sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status } = req.body;
     const query = "INSERT INTO sub_groups (sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status) VALUES (?, ?, ?, ?, ?, ?, ?)";
-    db.query(query, [sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status], (err, results) => {
+    pool.query(query, [sub_group_code, sub_group_name, tally_report, sub_report, debit_credit, trial_balance, status], (err, results) => {
         if (err) return res.status(500).json({ error: err });
         res.json({ message: "Sub group created successfully", id: results.insertId });
     });
 });
 
 // CRUD routes for ledgers
-app.get("/ledgers", (req, res) => {
-    db.query("SELECT * FROM ledgers ORDER BY ledger_code", (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results);
-    });
+app.get("/ledgers", async (req, res) => {
+
+    try {
+
+        const [rows] = await pool.query(
+            "SELECT * FROM ledgers ORDER BY ledger_code"
+        );
+
+        res.json(rows);
+
+    } catch (error) {
+
+        console.error("❌ Error fetching ledgers:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
+
+    }
+
 });
 
 app.post("/ledgers", (req, res) => {
     const { ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status } = req.body;
     const query = "INSERT INTO ledgers (ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status) VALUES (?, ?, ?, ?, ?, ?, ?)";
-    db.query(query, [ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status], (err, results) => {
+    pool.query(query, [ledger_code, ledger_name, tally_report, debit_credit, trial_balance, status, link_status], (err, results) => {
         if (err) return res.status(500).json({ error: err });
         res.json({ message: "Ledger created successfully", id: results.insertId });
     });
 });
 
 // CRUD routes for divisions
-app.get("/divisions", (req, res) => {
-    db.query("SELECT * FROM divisions ORDER BY division_name", (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results);
-    });
-});
+app.get("/divisions", async (req, res) => {
 
-// app.post("/divisions", (req, res) => {
-//     const { division_name } = req.body;
-//     const query = "INSERT INTO divisions (division_name) VALUES (?)";
-//     db.query(query, [division_name], (err, results) => {
-//         if (err) return res.status(500).json({ error: err });
-//         res.json({ message: "Division created successfully", id: results.insertId });
-//     });
-// });
+    try {
+
+        const [rows] = await pool.query("SELECT * FROM divisions");
+
+        res.json({
+            success: true,
+            data: rows
+        });
+
+    } catch (error) {
+
+        res.status(500).json({ error: error.message });
+
+    }
+
+});
 
 app.post("/divisions", (req, res) => {
     const { divisions } = req.body;
@@ -407,12 +476,18 @@ app.post("/divisions", (req, res) => {
         return res.status(400).json({ message: "No divisions provided" });
     }
 
-    // Create (?, ?, ?, ?) dynamically
-    const placeholders = divisions.map(() => "(?)").join(",");
+    // Prepare values
+    const values = divisions.map((division, index) => [
+        division,
+        index + 1
+    ]);
 
-    const query = `INSERT INTO divisions (division_name) VALUES ${placeholders}`;
+    const query = `
+        INSERT INTO divisions (division_name, position)
+        VALUES ?
+    `;
 
-    db.query(query, divisions, (err, results) => {
+    pool.query(query, [values], (err, results) => {
         if (err) {
             console.error(err);
             return res.status(500).json({ error: err });
@@ -449,7 +524,7 @@ app.put("/divisions", (req, res) => {
 
     const values = divisions.map(d => d.division_name);
 
-    db.query(query, values, (err, results) => {
+    pool.query(query, values, (err, results) => {
         if (err) {
             console.error(err);
             return res.status(500).json({ error: err });
@@ -463,61 +538,99 @@ app.put("/divisions", (req, res) => {
 });
 
 // CRUD routes for connect_consolidates
-app.get("/connect_consolidates", (req, res) => {
-    db.query("SELECT * FROM connect_consolidates ORDER BY serial_no", (err, results) => {
-        if (err) return res.status(500).json({ error: err });
-        res.json(results);
-    });
+app.get("/connect_consolidates", async (req, res) => {
+    try {
+
+        const [rows] = await pool.query(
+            "SELECT * FROM connect_consolidates ORDER BY serial_no"
+        );
+
+        res.json(rows);
+
+    } catch (error) {
+
+        console.error("❌ Error fetching connect_consolidates:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
+
+    }
 });
 
 app.post("/connect_consolidates", (req, res) => {
     const { serial_no, ledger_code, sub_group_code, main_group_code, status } = req.body;
     const query = "INSERT INTO connect_consolidates (serial_no, ledger_code, sub_group_code, main_group_code, status) VALUES (?, ?, ?, ?, ?)";
-    db.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status], (err, results) => {
+    pool.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status], (err, results) => {
         if (err) return res.status(500).json({ error: err });
         res.json({ message: "Consolidation record created successfully", id: results.insertId });
     });
 });
 
 // Route 1 → all consolidated
-app.get("/consolidated", (req, res) => {
-    const sql = "SELECT * FROM consolidated_display ORDER BY serial_no";
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(results);
-    });
+app.get("/consolidated", async (req, res) => {
+    try {
+
+        const sql = "SELECT * FROM consolidated_display ORDER BY serial_no";
+
+        const [rows] = await pool.query(sql);
+
+        res.json(rows);
+
+    } catch (error) {
+
+        console.error("❌ Error fetching consolidated:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
+
+    }
 });
 
 // Route 2 → consolidated for specific ledger
-app.get("/consolidated/by-ledger", (req, res) => {
-    const { ledger_code } = req.query;
+app.get("/consolidated/by-ledger", async (req, res) => {
 
-    let sql = "SELECT * FROM consolidated_display";
-    let params = [];
+    try {
 
-    if (ledger_code) {
-        sql += " WHERE ledger_code = ? ORDER BY serial_no";
-        params.push(ledger_code);
-    } else {
-        sql += " ORDER BY serial_no";
+        const { ledger_code } = req.query;
+
+        let sql = "SELECT * FROM consolidated_display";
+        let params = [];
+
+        if (ledger_code) {
+            sql += " WHERE ledger_code = ? ORDER BY serial_no";
+            params.push(ledger_code);
+        } else {
+            sql += " ORDER BY serial_no";
+        }
+
+        const [rows] = await pool.query(sql, params);
+
+        res.json(rows);
+
+    } catch (error) {
+
+        console.error("❌ Error fetching consolidated by ledger:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
+
     }
 
-    db.query(sql, params, (err, results) => {
-        if (err) return res.status(500).json({ error : err.message });
-        res.json(results);
-    })
 });
 
 // Create new consolidation record
 app.post("/consolidated", (req, res) => {
     const { serial_no, ledger_code, sub_group_code, main_group_code, status } = req.body;
-    
+
     const query = `
         INSERT INTO connect_consolidates (serial_no, ledger_code, sub_group_code, main_group_code, status) 
         VALUES (?, ?, ?, ?, ?)
     `;
-    
-    db.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status], (err, results) => {
+
+    pool.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status], (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: "Consolidation record created successfully", id: results.insertId });
     });
@@ -527,14 +640,14 @@ app.post("/consolidated", (req, res) => {
 app.put("/consolidated/:id", (req, res) => {
     const { id } = req.params;
     const { serial_no, ledger_code, sub_group_code, main_group_code, status } = req.body;
-    
+
     const query = `
         UPDATE connect_consolidates 
         SET serial_no = ?, ledger_code = ?, sub_group_code = ?, main_group_code = ?, status = ?
         WHERE id = ?
     `;
-    
-    db.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status, id], (err, results) => {
+
+    pool.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status, id], (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: "Consolidation record updated successfully" });
     });
@@ -543,10 +656,10 @@ app.put("/consolidated/:id", (req, res) => {
 // Delete consolidation record
 app.delete("/consolidated/:id", (req, res) => {
     const { id } = req.params;
-    
+
     const query = "DELETE FROM connect_consolidates WHERE id = ?";
-    
-    db.query(query, [id], (err, results) => {
+
+    pool.query(query, [id], (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: "Consolidation record deleted successfully" });
     });
@@ -556,14 +669,14 @@ app.delete("/consolidated/:id", (req, res) => {
 // Enhanced merge endpoint
 app.post("/consolidated/merge", async (req, res) => {
     const { ledger_code, sub_group_code, main_group_code } = req.body;
-    
+
     try {
         // Get sub_group and main_group names
         let sub_group_name = null;
         let main_group_name = null;
 
         if (sub_group_code) {
-            const subGroupResult = await db.promise().execute(
+            const subGroupResult = await pool.execute(
                 "SELECT sub_group_name FROM sub_groups WHERE sub_group_code = ?",
                 [sub_group_code]
             );
@@ -571,7 +684,7 @@ app.post("/consolidated/merge", async (req, res) => {
         }
 
         if (main_group_code) {
-            const mainGroupResult = await db.promise().execute(
+            const mainGroupResult = await pool.execute(
                 "SELECT main_group_name FROM main_groups WHERE main_group_code = ?",
                 [main_group_code]
             );
@@ -579,7 +692,7 @@ app.post("/consolidated/merge", async (req, res) => {
         }
 
         // Update ledger table with consolidation data
-        await db.promise().execute(
+        await pool.execute(
             `UPDATE ledgers 
              SET link_status = 'active',
                  consolidated_sub_group_code = ?,
@@ -591,10 +704,10 @@ app.post("/consolidated/merge", async (req, res) => {
             [sub_group_code, sub_group_name, main_group_code, main_group_name, ledger_code]
         );
 
-        res.json({ 
-            message: "Ledger merged successfully", 
+        res.json({
+            message: "Ledger merged successfully",
             ledger_code,
-            sub_group_code, 
+            sub_group_code,
             sub_group_name,
             main_group_code,
             main_group_name
@@ -608,10 +721,10 @@ app.post("/consolidated/merge", async (req, res) => {
 // Enhanced demerge endpoint
 app.post("/consolidated/demerge/:ledger_code", async (req, res) => {
     const { ledger_code } = req.params;
-    
+
     try {
         // Clear consolidation data from ledger table
-        await db.promise().execute(
+        await pool.execute(
             `UPDATE ledgers 
              SET link_status = 'inactive',
                  consolidated_sub_group_code = NULL,
@@ -623,9 +736,9 @@ app.post("/consolidated/demerge/:ledger_code", async (req, res) => {
             [ledger_code]
         );
 
-        res.json({ 
-            message: "Ledger demerged successfully", 
-            ledger_code 
+        res.json({
+            message: "Ledger demerged successfully",
+            ledger_code
         });
 
     } catch (error) {
@@ -634,8 +747,11 @@ app.post("/consolidated/demerge/:ledger_code", async (req, res) => {
 });
 
 // Get merged ledgers (active consolidation)
-app.get("/consolidated/active", (req, res) => {
-    const sql = `
+app.get("/consolidated/active", async (req, res) => {
+
+    try {
+
+        const sql = `
         SELECT 
             l.*,
             cc.sub_group_code,
@@ -644,21 +760,38 @@ app.get("/consolidated/active", (req, res) => {
             mg.main_group_name,
             cc.status as consolidation_status
         FROM ledgers l
-        INNER JOIN connect_consolidates cc ON l.ledger_code = cc.ledger_code AND cc.status = 'active'
-        LEFT JOIN sub_groups sg ON cc.sub_group_code = sg.sub_group_code
-        LEFT JOIN main_groups mg ON cc.main_group_code = mg.main_group_code
+        INNER JOIN connect_consolidates cc 
+            ON l.ledger_code = cc.ledger_code 
+            AND cc.status = 'active'
+        LEFT JOIN sub_groups sg 
+            ON cc.sub_group_code = sg.sub_group_code
+        LEFT JOIN main_groups mg 
+            ON cc.main_group_code = mg.main_group_code
         ORDER BY cc.serial_no
     `;
-    
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(results);
-    });
+
+        const [rows] = await pool.query(sql);
+
+        res.json(rows);
+
+    } catch (error) {
+
+        console.error("❌ Error fetching active consolidations:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
+
+    }
+
 });
 
 // Get demerged ledgers (inactive consolidation)
-app.get("/consolidated/inactive", (req, res) => {
-    const sql = `
+app.get("/consolidated/inactive", async (req, res) => {
+
+    try {
+
+        const sql = `
         SELECT 
             l.*,
             'inactive' as consolidation_status
@@ -671,23 +804,307 @@ app.get("/consolidated/inactive", (req, res) => {
         )
         ORDER BY l.ledger_code
     `;
-    
-    db.query(sql, (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(results);
-    });
+
+        const [rows] = await pool.query(sql);
+
+        res.json(rows);
+
+    } catch (error) {
+
+        console.error("❌ Error fetching inactive consolidations:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
+
+    }
+
 });
 
 // Get consolidated data for specific ledger_code
-app.get("/consolidated/ledger/:ledger_code", (req, res) => {
-    const { ledger_code } = req.params;
-    
-    const sql = "SELECT * FROM consolidated_display WHERE ledger_code = ? ORDER BY serial_no";
-    
-    db.query(sql, [ledger_code], (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(results);
+app.get("/consolidated/ledger/:ledger_code", async (req, res) => {
+
+    try {
+
+        const { ledger_code } = req.params;
+
+        const sql = `
+      SELECT * 
+      FROM consolidated_display 
+      WHERE ledger_code = ?
+      ORDER BY serial_no
+    `;
+
+        const [rows] = await pool.query(sql, [ledger_code]);
+
+        res.json(rows);
+
+    } catch (error) {
+
+        console.error("❌ Error fetching ledger consolidated data:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
+
+    }
+
+});
+
+
+app.post('/vouchers', async (req, res) => {
+
+    console.log('📥 Received voucher data:', req.body);
+
+    const connection = await pool.getConnection();
+
+    try {
+
+        await connection.beginTransaction();
+
+        const {
+            voucherNumber,
+            dateTime,
+            transactions,
+            totals
+        } = req.body;
+
+        // FORMAT DATE
+        const [datePart] = dateTime.split(" - ");
+        const [day, month, year] = datePart.split("-");
+        const formattedDate = `${year}-${month}-${day}`;
+
+        console.log("Formatted Date:", formattedDate);
+
+        // INSERT EACH ROW INTO SAME TABLE
+        for (const row of transactions) {
+
+            console.log("➡️ Inserting row:", row);
+
+            await connection.query(
+                `INSERT INTO vouchers (
+    voucher_number,
+    voucher_date,
+    ledger_code,
+    ledger_name,
+    d1Amount,d1Type,
+    d2Amount,d2Type,
+    d3Amount,d3Type,
+    d4Amount,d4Type,
+    d5Amount,d5Type,
+    totalDr,totalCr,netAmt,
+    narration
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    voucherNumber,
+                    formattedDate,
+
+                    row.ledgerCode,
+                    row.ledgerName,
+
+                    row.d1Amount || row.amount || 0,
+                    row.d1Type || row.type || "Debit",
+
+                    row.d2Amount || 0,
+                    row.d2Type || "Debit",
+
+                    row.d3Amount || 0,
+                    row.d3Type || "Debit",
+
+                    row.d4Amount || 0,
+                    row.d4Type || "Debit",
+
+                    row.d5Amount || 0,
+                    row.d5Type || "Debit",
+
+                    row.totalDr || 0,
+                    row.totalCr || 0,
+                    row.netAmt || 0,
+
+                    "Voucher created"
+                ]
+            );
+
+            console.log("✅ Row inserted");
+        }
+
+        await connection.commit();
+
+        console.log("🎉 Transaction committed");
+
+        res.json({
+            success: true,
+            message: "Voucher saved successfully"
+        });
+
+    } catch (error) {
+
+        console.error("❌ ERROR:", error);
+
+        await connection.rollback();
+
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+
+    } finally {
+        connection.release();
+    }
+
+});
+
+// GET all vouchers
+app.get('/vouchers', async (req, res) => {
+    try {
+        const [vouchers] = await pool.query(`
+            SELECT v.*, COUNT(vr.id) as row_count 
+            FROM vouchers v 
+            LEFT JOIN voucher_rows vr ON v.id = vr.voucher_id 
+            GROUP BY v.id 
+            ORDER BY v.id DESC
+        `);
+
+        res.json({
+            success: true,
+            data: vouchers
+        });
+    } catch (error) {
+        console.error('Error fetching vouchers:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch vouchers',
+            error: error.message
+        });
+    }
+});
+
+// GET single voucher with rows
+app.get('/vouchers/:id', async (req, res) => {
+    try {
+        const [vouchers] = await pool.query(
+            'SELECT * FROM vouchers WHERE id = ?',
+            [req.params.id]
+        );
+
+        if (vouchers.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Voucher not found'
+            });
+        }
+
+        const [rows] = await pool.query(
+            'SELECT * FROM voucher_rows WHERE voucher_id = ? ORDER BY id',
+            [req.params.id]
+        );
+
+        res.json({
+            success: true,
+            data: {
+                ...vouchers[0],
+                transactions: rows
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching voucher:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch voucher',
+            error: error.message
+        });
+    }
+});
+
+app.get("/vouchers/next-number", async (req, res) => {
+    try {
+
+        const [rows] = await pool.query(`
+      SELECT voucher_number 
+      FROM vouchers 
+      ORDER BY id DESC 
+      LIMIT 1
+    `);
+
+        if (rows.length === 0) {
+            return res.json({ voucherNumber: "VCH-10001" });
+        }
+
+        const lastVoucher = rows[0].voucher_number;
+
+        const number = parseInt(lastVoucher.split("-")[1]) + 1;
+
+        const nextVoucher = `VCH-${number.toString().padStart(5, "0")}`;
+
+        res.json({ voucherNumber: nextVoucher });
+
+    } catch (err) {
+
+        res.status(500).json({ error: err.message });
+
+    }
+});
+
+app.get("/vouchers/random-number", (req, res) => {
+
+    const sql = `
+      SELECT voucher_number
+      FROM vouchers
+      WHERE voucher_number LIKE 'VCH-%'
+      ORDER BY created_at DESC
+      LIMIT 1
+  `;
+
+    pool.query(sql, (err, results) => {
+
+        if (err) {
+            return res.status(500).json({
+                success: false,
+                error: err.message
+            });
+        }
+
+        let nextSequence = "0001";
+
+        const today = new Date();
+        const day = String(today.getDate()).padStart(2, "0");
+        const month = String(today.getMonth() + 1).padStart(2, "0");
+        const year = today.getFullYear().toString().slice(-2);
+
+        if (results.length > 0 && results[0].voucher_number) {
+
+            const lastVoucher = results[0].voucher_number;
+
+            const parts = lastVoucher.split("-");
+
+            if (parts.length >= 5) {
+
+                const lastDate = `${parts[1]}-${parts[2]}-${parts[3]}`;
+                const currentDate = `${day}-${month}-${year}`;
+
+                if (lastDate === currentDate) {
+
+                    const lastSequence = parseInt(parts[4]) || 0;
+
+                    nextSequence = (lastSequence + 1)
+                        .toString()
+                        .padStart(4, "0");
+
+                }
+
+            }
+
+        }
+
+        const voucherNumber = `VCH-${day}-${month}-${year}-${nextSequence}`;
+
+        res.json({
+            success: true,
+            voucherNumber: voucherNumber
+        });
+
     });
+
 });
 
 // Error handling middleware
