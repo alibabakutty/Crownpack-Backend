@@ -956,27 +956,39 @@ app.post('/vouchers', async (req, res) => {
 
 // GET all vouchers
 app.get('/vouchers', async (req, res) => {
+
     try {
+
         const [vouchers] = await pool.query(`
-            SELECT v.*, COUNT(vr.id) as row_count 
-            FROM vouchers v 
-            LEFT JOIN voucher_rows vr ON v.id = vr.voucher_id 
-            GROUP BY v.id 
-            ORDER BY v.id DESC
+            SELECT 
+                voucher_number,
+                voucher_date,
+                COUNT(*) as row_count,
+                SUM(totalDr) as total_debit,
+                SUM(totalCr) as total_credit,
+                MIN(created_at) as created_at
+            FROM vouchers
+            GROUP BY voucher_number, voucher_date
+            ORDER BY created_at DESC
         `);
 
         res.json({
             success: true,
             data: vouchers
         });
+
     } catch (error) {
-        console.error('Error fetching vouchers:', error);
+
+        console.error("❌ Error fetching vouchers:", error);
+
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch vouchers',
+            message: "Failed to fetch vouchers",
             error: error.message
         });
+
     }
+
 });
 
 // GET single voucher with rows
