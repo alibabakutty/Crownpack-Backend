@@ -956,39 +956,83 @@ app.post('/vouchers', async (req, res) => {
 
 // GET all vouchers
 app.get('/vouchers', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        *,
+        DATE_FORMAT(voucher_date, '%Y-%m-%d') as voucher_date_formatted
+      FROM vouchers
+      ORDER BY voucher_number DESC
+    `);
 
-    try {
+    // Replace the original voucher_date with the formatted one
+    const formattedRows = rows.map(row => ({
+      ...row,
+      voucher_date: row.voucher_date_formatted || row.voucher_date
+    }));
 
-        const [vouchers] = await pool.query(`
-            SELECT 
-                voucher_number,
-                voucher_date,
-                COUNT(*) as row_count,
-                SUM(totalDr) as total_debit,
-                SUM(totalCr) as total_credit,
-                MIN(created_at) as created_at
-            FROM vouchers
-            GROUP BY voucher_number, voucher_date
-            ORDER BY created_at DESC
-        `);
+    res.json({
+      success: true,
+      data: formattedRows,
+      count: rows.length
+    });
 
-        res.json({
-            success: true,
-            data: vouchers
-        });
+  } catch (error) {
+    console.error("❌ Error fetching vouchers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch vouchers",
+      error: error.message
+    });
+  }
+});
 
-    } catch (error) {
+app.get('/vouchers-by-number/:voucher_number', async (req, res) => {
 
-        console.error("❌ Error fetching vouchers:", error);
+  const { voucher_number } = req.params;
 
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch vouchers",
-            error: error.message
-        });
+  if (!voucher_number) {
+    return res.status(400).json({
+      success: false,
+      message: "Voucher number is required"
+    });
+  }
 
+  try {
+
+    const [rows] = await pool.query(
+      `SELECT *
+       FROM vouchers
+       WHERE voucher_number = ?
+       ORDER BY id ASC`,
+      [voucher_number]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Voucher not found"
+      });
     }
 
+    res.json({
+      success: true,
+      voucherNumber: voucher_number,
+      count: rows.length,
+      data: rows
+    });
+
+  } catch (error) {
+
+    console.error("❌ Error fetching voucher:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch voucher",
+      error: error.message
+    });
+
+  }
 });
 
 // GET single voucher with rows
