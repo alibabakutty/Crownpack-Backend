@@ -1035,41 +1035,117 @@ app.get('/vouchers-by-number/:voucher_number', async (req, res) => {
   }
 });
 
-// GET single voucher with rows
-app.get('/vouchers/:id', async (req, res) => {
+app.put('/vouchers/:voucherNumber', async (req, res) => {
+
+    console.log('📥 Update voucher request:', req.body);
+
+    const connection = await pool.getConnection();
+
     try {
-        const [vouchers] = await pool.query(
-            'SELECT * FROM vouchers WHERE id = ?',
-            [req.params.id]
+
+        await connection.beginTransaction();
+
+        const voucherNumber = req.params.voucherNumber;
+
+        const {
+            dateTime,
+            transactions,
+            totals
+        } = req.body;
+
+        // FORMAT DATE
+        const [datePart] = dateTime.split(" - ");
+        const [day, month, year] = datePart.split("-");
+        const formattedDate = `${year}-${month}-${day}`;
+
+        console.log("Formatted Date:", formattedDate);
+
+        // DELETE OLD ROWS
+        await connection.query(
+            `DELETE FROM vouchers WHERE voucher_number = ?`,
+            [voucherNumber]
         );
 
-        if (vouchers.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'Voucher not found'
-            });
+        console.log("🗑 Old voucher rows deleted");
+
+        // INSERT UPDATED ROWS
+        for (const row of transactions) {
+
+            console.log("➡️ Inserting updated row:", row);
+
+            await connection.query(
+                `INSERT INTO vouchers (
+                    voucher_number,
+                    voucher_date,
+                    ledger_code,
+                    ledger_name,
+                    d1Amount,d1Type,
+                    d2Amount,d2Type,
+                    d3Amount,d3Type,
+                    d4Amount,d4Type,
+                    d5Amount,d5Type,
+                    totalDr,totalCr,netAmt,
+                    narration
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    voucherNumber,
+                    formattedDate,
+
+                    row.ledgerCode,
+                    row.ledgerName,
+
+                    row.d1Amount || row.amount || 0,
+                    row.d1Type || row.type || "Debit",
+
+                    row.d2Amount || 0,
+                    row.d2Type || "Debit",
+
+                    row.d3Amount || 0,
+                    row.d3Type || "Debit",
+
+                    row.d4Amount || 0,
+                    row.d4Type || "Debit",
+
+                    row.d5Amount || 0,
+                    row.d5Type || "Debit",
+
+                    row.totalDr || 0,
+                    row.totalCr || 0,
+                    row.netAmt || 0,
+
+                    "Voucher updated"
+                ]
+            );
+
+            console.log("✅ Updated row inserted");
         }
 
-        const [rows] = await pool.query(
-            'SELECT * FROM voucher_rows WHERE voucher_id = ? ORDER BY id',
-            [req.params.id]
-        );
+        await connection.commit();
+
+        console.log("🎉 Voucher updated successfully");
 
         res.json({
             success: true,
-            data: {
-                ...vouchers[0],
-                transactions: rows
-            }
+            message: "Voucher updated successfully"
         });
+
     } catch (error) {
-        console.error('Error fetching voucher:', error);
+
+        console.error("❌ UPDATE ERROR:", error);
+
+        await connection.rollback();
+
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch voucher',
             error: error.message
         });
+
+    } finally {
+
+        connection.release();
+
     }
+
 });
 
 app.get("/vouchers/next-number", async (req, res) => {
