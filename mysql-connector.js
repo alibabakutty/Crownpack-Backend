@@ -1072,9 +1072,16 @@ app.put('/vouchers/:voucherNumber', async (req, res) => {
         } = req.body;
 
         // FORMAT DATE
-        const [datePart] = dateTime.split(" - ");
-        const [day, month, year] = datePart.split("-");
-        const formattedDate = `${year}-${month}-${day}`;
+        const [existingVoucher] = await connection.query(
+            `SELECT voucher_date FROM vouchers WHERE voucher_number = ? LIMIT 1`,
+            [voucherNumber]
+        );
+
+        if (existingVoucher.length === 0) {
+            throw new Error("Voucher not found");
+        }
+
+        const formattedDate = existingVoucher[0].voucher_date;
 
         console.log("Formatted Date:", formattedDate);
 

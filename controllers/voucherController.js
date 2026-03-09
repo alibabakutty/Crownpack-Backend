@@ -172,11 +172,20 @@ export const updateVoucher = async (req, res) => {
         const voucherNumber = req.params.voucherNumber;
         const { dateTime, divisionType, transactions } = req.body;
 
-        const [datePart] = dateTime.split(" - ");
-        const [day, month, year] = datePart.split("-");
-        const formattedDate = `${year}-${month}-${day}`;
+        const [existingVoucher] = await connection.query(
+            `SELECT voucher_date FROM vouchers WHERE voucher_number = ? LIMIT 1`,
+            [voucherNumber]
+        );
 
-        console.log("Formatted Date:", formattedDate);
+        if (existingVoucher.length === 0) {
+            throw new Error("Voucher not found");
+        }
+
+        const formattedDate = existingVoucher[0].voucher_date;
+
+        console.log("Using existing voucher date:", formattedDate);
+
+
 
         await connection.query(
             `DELETE FROM vouchers WHERE voucher_number = ?`,
