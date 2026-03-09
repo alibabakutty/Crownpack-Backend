@@ -1,42 +1,32 @@
 import pool from "../config/database.js";
 
-export const getAllMainGroups = async (req, res, next) => {
+export const getMainGroups = async (req, res) => {
     try {
-        const [rows] = await pool.query("SELECT * FROM main_groups ORDER BY main_group_code");
+        const [rows] = await pool.query("SELECT * FROM main_groups");
         res.json({
             success: true,
             data: rows
         });
     } catch (error) {
-        next(error);
+        console.error("❌ Error fetching main groups:", error);
+        res.status(500).json({
+            error: error.message
+        });
     }
 };
 
-export const createMainGroup = async (req, res, next) => {
+export const createMainGroup = async (req, res) => {
     try {
-        const { main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status } = req.body;
-
-        if (!main_group_name) {
-            return res.status(400).json({
-                success: false,
-                error: "Main group name is required"
-            });
-        }
+        const { main_group_code, main_group_name } = req.body;
 
         const sql = `
-            INSERT INTO main_groups 
-            (main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO main_groups (main_group_code, main_group_name) 
+            VALUES (?, ?)
         `;
 
         const [result] = await pool.query(sql, [
-            main_group_code || null,
-            main_group_name,
-            tally_report || null,
-            sub_report || null,
-            debit_credit || null,
-            trial_balance || null,
-            status || 'Active'
+            main_group_code,
+            main_group_name
         ]);
 
         res.json({
@@ -46,92 +36,10 @@ export const createMainGroup = async (req, res, next) => {
         });
 
     } catch (error) {
-        next(error);
-    }
-};
-
-export const updateMainGroup = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const { main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status } = req.body;
-
-        const sql = `
-            UPDATE main_groups 
-            SET main_group_code = ?, main_group_name = ?, tally_report = ?, sub_report = ?, 
-                debit_credit = ?, trial_balance = ?, status = ?
-            WHERE id = ?
-        `;
-
-        const [result] = await pool.query(sql, [
-            main_group_code,
-            main_group_name,
-            tally_report,
-            sub_report,
-            debit_credit,
-            trial_balance,
-            status,
-            id
-        ]);
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                success: false,
-                error: "Main group not found"
-            });
-        }
-
-        res.json({
-            success: true,
-            message: "Main group updated successfully"
+        console.error("Error inserting main group:", error);
+        res.status(500).json({
+            success: false,
+            error: error.message
         });
-
-    } catch (error) {
-        next(error);
-    }
-};
-
-export const deleteMainGroup = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-
-        const [result] = await pool.query("DELETE FROM main_groups WHERE id = ?", [id]);
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                success: false,
-                error: "Main group not found"
-            });
-        }
-
-        res.json({
-            success: true,
-            message: "Main group deleted successfully"
-        });
-
-    } catch (error) {
-        next(error);
-    }
-};
-
-export const getMainGroupById = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-
-        const [rows] = await pool.query("SELECT * FROM main_groups WHERE id = ?", [id]);
-
-        if (rows.length === 0) {
-            return res.status(404).json({
-                success: false,
-                error: "Main group not found"
-            });
-        }
-
-        res.json({
-            success: true,
-            data: rows[0]
-        });
-
-    } catch (error) {
-        next(error);
     }
 };

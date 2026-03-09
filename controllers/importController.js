@@ -1,87 +1,80 @@
-import importService from "../services/importService.js";
-import { cleanupFile } from "../utils/fileCleanUp.js";
+import exceljs from "exceljs";
+import fs from "fs";
+import pool from "../config/database.js";
 
-export const importMainGroups = async (req, res, next) => {
+export const importMainGroups = async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        const result = await importService.processExcelFile(req.file.path, 'main_groups');
+        const workbook = new exceljs.Workbook();
+        await workbook.xlsx.readFile(req.file.path);
+        const worksheet = workbook.getWorksheet(1);
 
-        // Clean up uploaded file
-        await cleanupFile(req.file.path);
-
-        res.json({
-            message: 'Import completed',
-            ...result
-        });
-
-    } catch (error) {
-        if (req.file) await cleanupFile(req.file.path);
-        next(error);
-    }
-};
-
-export const importSubGroups = async (req, res, next) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+        if (!worksheet) {
+            return res.status(400).json({ error: 'No worksheet found in the Excel file' });
         }
 
-        const result = await importService.processExcelFile(req.file.path, 'sub_groups');
+        let successCount = 0;
+        let errorCount = 0;
+        const errors = [];
 
-        await cleanupFile(req.file.path);
-
-        res.json({
-            message: 'Import completed',
-            ...result
+        const rows = [];
+        worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+            if (rowNumber > 1) {
+                rows.push({ row, rowNumber });
+            }
         });
 
-    } catch (error) {
-        if (req.file) await cleanupFile(req.file.path);
-        next(error);
-    }
-};
+        for (const { row, rowNumber } of rows) {
+            const main_group_code = row.getCell(1).value?.toString() || null;
+            const main_group_name = row.getCell(2).value?.toString();
+            const tally_report = row.getCell(3).value?.toString() || null;
+            const sub_report = row.getCell(4).value?.toString() || null;
+            const debit_credit = row.getCell(5).value?.toString() || null;
+            const trial_balance = row.getCell(6).value?.toString() || null;
+            const status = row.getCell(7).value?.toString() || 'Active';
 
-export const importLedgers = async (req, res, next) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+            if (!main_group_name) {
+                errors.push(`Row ${rowNumber}: Main Group Name is required`);
+                errorCount++;
+                continue;
+            }
+
+            const query = `INSERT INTO main_groups (main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status) 
+                          VALUES (?, ?, ?, ?, ?, ?, ?) 
+                          ON DUPLICATE KEY UPDATE 
+                          main_group_code = VALUES(main_group_code), 
+                          tally_report = VALUES(tally_report), 
+                          sub_report = VALUES(sub_report),
+                          debit_credit = VALUES(debit_credit),
+                          trial_balance = VALUES(trial_balance),
+                          status = VALUES(status)`;
+
+            try {
+                await pool.execute(query, [main_group_code, main_group_name, tally_report, sub_report, debit_credit, trial_balance, status]);
+                successCount++;
+            } catch (err) {
+                errors.push(`Row ${rowNumber}: ${err.message}`);
+                errorCount++;
+            }
         }
 
-        const result = await importService.processExcelFile(req.file.path, 'ledgers');
-
-        await cleanupFile(req.file.path);
+        fs.unlinkSync(req.file.path);
 
         res.json({
             message: 'Import completed',
-            ...result
+            successCount,
+            errorCount,
+            errors: errors.slice(0, 10)
         });
 
     } catch (error) {
-        if (req.file) await cleanupFile(req.file.path);
-        next(error);
+        if (req.file) fs.unlinkSync(req.file.path);
+        res.status(500).json({ error: error.message });
     }
 };
 
-export const importConnectConsolidates = async (req, res, next) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
-        }
-
-        const result = await importService.processExcelFile(req.file.path, 'connect_consolidates');
-
-        await cleanupFile(req.file.path);
-
-        res.json({
-            message: 'Import completed',
-            ...result
-        });
-
-    } catch (error) {
-        if (req.file) await cleanupFile(req.file.path);
-        next(error);
-    }
-};
+// Similar functions for subGroups, ledgers, connectConsolidates...
+// (Copy the remaining import functions here)
