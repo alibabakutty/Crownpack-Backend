@@ -417,25 +417,40 @@ app.post("/sub_groups", (req, res) => {
     });
 });
 
-// CRUD routes for ledgers
+// CRUD routes for ledgers old
+// app.get("/ledgers", async (req, res) => {
+
+//     try {
+
+//         const [rows] = await pool.query(
+//             "SELECT * FROM ledgers ORDER BY ledger_code"
+//         );
+
+//         res.json(rows);
+
+//     } catch (error) {
+
+//         console.error("❌ Error fetching ledgers:", error);
+
+//         res.status(500).json({
+//             error: error.message
+//         });
+
+//     }
+
+// });
+
+// CRUD routes for ledgers new
 app.get("/ledgers", async (req, res) => {
 
     try {
-
-        const [rows] = await pool.query(
-            "SELECT * FROM ledgers ORDER BY ledger_code"
-        );
-
-        res.json(rows);
-
-    } catch (error) {
-
-        console.error("❌ Error fetching ledgers:", error);
-
-        res.status(500).json({
-            error: error.message
+        const [rows] = await pool.query("SELECT * FROM ledgers ORDER BY ledger_code");
+        res.json({
+            success: true,
+            data: rows
         });
-
+    } catch (error) {
+        next(error);
     }
 
 });
@@ -865,8 +880,9 @@ app.post('/vouchers', async (req, res) => {
         const {
             voucherNumber,
             dateTime,
+            divisionType,
             transactions,
-            totals
+            // totals
         } = req.body;
 
         // FORMAT DATE
@@ -885,6 +901,7 @@ app.post('/vouchers', async (req, res) => {
                 `INSERT INTO vouchers (
     voucher_number,
     voucher_date,
+    division_type,
     ledger_code,
     ledger_name,
     d1Amount,d1Type,
@@ -894,11 +911,11 @@ app.post('/vouchers', async (req, res) => {
     d5Amount,d5Type,
     totalDr,totalCr,netAmt,
     narration
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     voucherNumber,
                     formattedDate,
-
+                    divisionType,
                     row.ledgerCode,
                     row.ledgerName,
 
@@ -956,8 +973,8 @@ app.post('/vouchers', async (req, res) => {
 
 // GET all vouchers
 app.get('/vouchers', async (req, res) => {
-  try {
-    const [rows] = await pool.query(`
+    try {
+        const [rows] = await pool.query(`
       SELECT 
         *,
         DATE_FORMAT(voucher_date, '%Y-%m-%d') as voucher_date_formatted
@@ -965,74 +982,74 @@ app.get('/vouchers', async (req, res) => {
       ORDER BY voucher_number DESC
     `);
 
-    // Replace the original voucher_date with the formatted one
-    const formattedRows = rows.map(row => ({
-      ...row,
-      voucher_date: row.voucher_date_formatted || row.voucher_date
-    }));
+        // Replace the original voucher_date with the formatted one
+        const formattedRows = rows.map(row => ({
+            ...row,
+            voucher_date: row.voucher_date_formatted || row.voucher_date
+        }));
 
-    res.json({
-      success: true,
-      data: formattedRows,
-      count: rows.length
-    });
+        res.json({
+            success: true,
+            data: formattedRows,
+            count: rows.length
+        });
 
-  } catch (error) {
-    console.error("❌ Error fetching vouchers:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch vouchers",
-      error: error.message
-    });
-  }
+    } catch (error) {
+        console.error("❌ Error fetching vouchers:", error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch vouchers",
+            error: error.message
+        });
+    }
 });
 
-app.get('/vouchers-by-number/:voucher_number', async (req, res) => {
+app.get('/vouchers/:voucher_number', async (req, res) => {
 
-  const { voucher_number } = req.params;
+    const { voucher_number } = req.params;
 
-  if (!voucher_number) {
-    return res.status(400).json({
-      success: false,
-      message: "Voucher number is required"
-    });
-  }
+    if (!voucher_number) {
+        return res.status(400).json({
+            success: false,
+            message: "Voucher number is required"
+        });
+    }
 
-  try {
+    try {
 
-    const [rows] = await pool.query(
-      `SELECT *
+        const [rows] = await pool.query(
+            `SELECT *
        FROM vouchers
        WHERE voucher_number = ?
        ORDER BY id ASC`,
-      [voucher_number]
-    );
+            [voucher_number]
+        );
 
-    if (rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Voucher not found"
-      });
+        if (rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Voucher not found"
+            });
+        }
+
+        res.json({
+            success: true,
+            voucherNumber: voucher_number,
+            count: rows.length,
+            data: rows
+        });
+
+    } catch (error) {
+
+        console.error("❌ Error fetching voucher:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch voucher",
+            error: error.message
+        });
+
     }
-
-    res.json({
-      success: true,
-      voucherNumber: voucher_number,
-      count: rows.length,
-      data: rows
-    });
-
-  } catch (error) {
-
-    console.error("❌ Error fetching voucher:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch voucher",
-      error: error.message
-    });
-
-  }
 });
 
 app.put('/vouchers/:voucherNumber', async (req, res) => {
@@ -1049,8 +1066,9 @@ app.put('/vouchers/:voucherNumber', async (req, res) => {
 
         const {
             dateTime,
+            divisionType,
             transactions,
-            totals
+            // totals
         } = req.body;
 
         // FORMAT DATE
@@ -1077,6 +1095,7 @@ app.put('/vouchers/:voucherNumber', async (req, res) => {
                 `INSERT INTO vouchers (
                     voucher_number,
                     voucher_date,
+                    division_type,
                     ledger_code,
                     ledger_name,
                     d1Amount,d1Type,
@@ -1086,11 +1105,11 @@ app.put('/vouchers/:voucherNumber', async (req, res) => {
                     d5Amount,d5Type,
                     totalDr,totalCr,netAmt,
                     narration
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     voucherNumber,
                     formattedDate,
-
+                    divisionType,
                     row.ledgerCode,
                     row.ledgerName,
 

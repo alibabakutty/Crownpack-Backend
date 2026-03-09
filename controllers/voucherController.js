@@ -11,8 +11,9 @@ export const createVoucher = async (req, res) => {
         const {
             voucherNumber,
             dateTime,
+            divisionType,
             transactions,
-            totals
+            // totals
         } = req.body;
 
         const [datePart] = dateTime.split(" - ");
@@ -28,6 +29,7 @@ export const createVoucher = async (req, res) => {
                 `INSERT INTO vouchers (
                     voucher_number,
                     voucher_date,
+                    division_type,
                     ledger_code,
                     ledger_name,
                     d1Amount,d1Type,
@@ -37,10 +39,11 @@ export const createVoucher = async (req, res) => {
                     d5Amount,d5Type,
                     totalDr,totalCr,netAmt,
                     narration
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     voucherNumber,
                     formattedDate,
+                    divisionType,
                     row.ledgerCode,
                     row.ledgerName,
                     row.d1Amount || row.amount || 0,
@@ -167,7 +170,7 @@ export const updateVoucher = async (req, res) => {
         await connection.beginTransaction();
 
         const voucherNumber = req.params.voucherNumber;
-        const { dateTime, transactions } = req.body;
+        const { dateTime, divisionType, transactions } = req.body;
 
         const [datePart] = dateTime.split(" - ");
         const [day, month, year] = datePart.split("-");
@@ -189,6 +192,7 @@ export const updateVoucher = async (req, res) => {
                 `INSERT INTO vouchers (
                     voucher_number,
                     voucher_date,
+                    division_type,
                     ledger_code,
                     ledger_name,
                     d1Amount,d1Type,
@@ -198,10 +202,11 @@ export const updateVoucher = async (req, res) => {
                     d5Amount,d5Type,
                     totalDr,totalCr,netAmt,
                     narration
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     voucherNumber,
                     formattedDate,
+                    divisionType,
                     row.ledgerCode,
                     row.ledgerName,
                     row.d1Amount || row.amount || 0,
