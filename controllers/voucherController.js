@@ -161,6 +161,29 @@ export const getVoucherByNumber = async (req, res) => {
     }
 };
 
+export const getVouchersByLedger = async (req, res) => {
+    const { ledger } = req.params;
+
+    try {
+        const [rows] = await pool.query(
+            `SELECT * FROM vouchers WHERE ledger_name = ? ORDER BY voucher_date ASC`,
+            [ledger]
+        );
+
+        res.json({
+            success: true,
+            data: rows,
+        })
+    } catch (error) {
+        console.error("Ledger fetch error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch ledger vouchers"
+        });
+        
+    }
+}
+
 export const updateVoucher = async (req, res) => {
     console.log('📥 Update voucher request:', req.body);
 
@@ -257,6 +280,123 @@ export const updateVoucher = async (req, res) => {
     } finally {
         connection.release();
     }
+};
+
+export const updateVoucherByLedger = async (req, res) => {
+
+    console.log("📥 Update by ledger request:", req.body);
+
+    const { ledger } = req.params;
+    const { divisionType, transactions } = req.body;
+
+    const connection = await pool.getConnection();
+
+    try {
+
+        await connection.beginTransaction();
+
+        // Check ledger exists
+        const [existingRows] = await connection.query(
+            `SELECT voucher_number, voucher_date 
+             FROM vouchers 
+             WHERE ledger_name = ?`,
+            [ledger]
+        );
+
+        if (existingRows.length === 0) {
+            throw new Error("Ledger vouchers not found");
+        }
+
+        console.log(`Found ${existingRows.length} rows for ledger: ${ledger}`);
+
+        // Delete existing ledger rows
+        await connection.query(
+            `DELETE FROM vouchers WHERE ledger_name = ?`,
+            [ledger]
+        );
+
+        console.log("🗑 Old ledger rows deleted");
+
+        // Insert updated rows
+        for (const row of transactions) {
+
+            console.log("➡️ Inserting updated row:", row);
+
+            await connection.query(
+                `INSERT INTO vouchers (
+                    voucher_number,
+                    voucher_date,
+                    division_type,
+                    ledger_code,
+                    ledger_name,
+                    d1Amount,d1Type,
+                    d2Amount,d2Type,
+                    d3Amount,d3Type,
+                    d4Amount,d4Type,
+                    d5Amount,d5Type,
+                    totalDr,totalCr,netAmt,
+                    narration
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    row.voucherNumber || existingRows[0].voucher_number,
+                    existingRows[0].voucher_date,
+                    divisionType,
+                    row.ledgerCode,
+                    row.ledgerName,
+
+                    row.d1Amount || row.amount || 0,
+                    row.d1Type || row.type || "Debit",
+
+                    row.d2Amount || 0,
+                    row.d2Type || "Debit",
+
+                    row.d3Amount || 0,
+                    row.d3Type || "Debit",
+
+                    row.d4Amount || 0,
+                    row.d4Type || "Debit",
+
+                    row.d5Amount || 0,
+                    row.d5Type || "Debit",
+
+                    row.totalDr || 0,
+                    row.totalCr || 0,
+                    row.netAmt || 0,
+
+                    "Ledger voucher updated"
+                ]
+            );
+
+            console.log("✅ Updated row inserted");
+
+        }
+
+        await connection.commit();
+
+        console.log("🎉 Ledger vouchers updated successfully");
+
+        res.json({
+            success: true,
+            message: "Ledger vouchers updated successfully"
+        });
+
+    } catch (error) {
+
+        console.error("❌ UPDATE LEDGER ERROR:", error);
+
+        await connection.rollback();
+
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+
+    } finally {
+
+        connection.release();
+
+    }
+
 };
 
 export const getNextVoucherNumber = async (req, res) => {
