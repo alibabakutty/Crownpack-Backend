@@ -1,226 +1,350 @@
 import pool from "../config/database.js";
+import db from "../config/database.js"
 
-export const getAllConsolidated = async (req, res) => {
-    try {
-        const sql = "SELECT * FROM consolidated_display ORDER BY serial_no";
-        const [rows] = await pool.query(sql);
-        res.json(rows);
-    } catch (error) {
-        console.error("❌ Error fetching consolidated:", error);
-        res.status(500).json({ error: error.message });
-    }
+/* =========================================
+   GET ALL CONSOLIDATIONS
+========================================= */
+
+export const getAllConsolidations = async (req, res) => {
+  try {
+
+    const sql = `
+      SELECT 
+        cc.id,
+        cc.serial_no,
+        l.ledger_code,
+        l.ledger_name,
+        cc.sub_group_code,
+        sg.sub_group_name,
+        cc.main_group_code,
+        mg.main_group_name,
+        l.tally_report,
+        l.debit_credit,
+        l.trial_balance,
+        cc.status
+      FROM connect_consolidates cc
+      JOIN ledgers l 
+        ON l.ledger_code = cc.ledger_code
+      LEFT JOIN sub_groups sg 
+        ON sg.sub_group_code = cc.sub_group_code
+      LEFT JOIN main_groups mg 
+        ON mg.main_group_code = cc.main_group_code
+      ORDER BY cc.serial_no
+    `;
+
+    const [rows] = await pool.execute(sql);
+
+    res.json({
+      success: true,
+      data: rows
+    });
+
+  } catch (error) {
+
+    console.error("Error fetching consolidations:", error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+
+  }
 };
 
-export const getConsolidatedByLedger = async (req, res) => {
-    try {
-        const { ledger_code } = req.query;
 
-        let sql = "SELECT * FROM consolidated_display";
-        let params = [];
-
-        if (ledger_code) {
-            sql += " WHERE ledger_code = ? ORDER BY serial_no";
-            params.push(ledger_code);
-        } else {
-            sql += " ORDER BY serial_no";
-        }
-
-        const [rows] = await pool.query(sql, params);
-        res.json(rows);
-
-    } catch (error) {
-        console.error("❌ Error fetching consolidated by ledger:", error);
-        res.status(500).json({ error: error.message });
-    }
-};
-
-export const mergeLedger = async (req, res) => {
-    const { ledger_code, sub_group_code, main_group_code } = req.body;
-
-    try {
-        let sub_group_name = null;
-        let main_group_name = null;
-
-        if (sub_group_code) {
-            const subGroupResult = await pool.execute(
-                "SELECT sub_group_name FROM sub_groups WHERE sub_group_code = ?",
-                [sub_group_code]
-            );
-            sub_group_name = subGroupResult[0][0]?.sub_group_name || null;
-        }
-
-        if (main_group_code) {
-            const mainGroupResult = await pool.execute(
-                "SELECT main_group_name FROM main_groups WHERE main_group_code = ?",
-                [main_group_code]
-            );
-            main_group_name = mainGroupResult[0][0]?.main_group_name || null;
-        }
-
-        await pool.execute(
-            `UPDATE ledgers 
-             SET link_status = 'active',
-                 consolidated_sub_group_code = ?,
-                 consolidated_sub_group_name = ?,
-                 consolidated_main_group_code = ?,
-                 consolidated_main_group_name = ?,
-                 consolidation_status = 'active'
-             WHERE ledger_code = ?`,
-            [sub_group_code, sub_group_name, main_group_code, main_group_name, ledger_code]
-        );
-
-        res.json({
-            message: "Ledger merged successfully",
-            ledger_code,
-            sub_group_code,
-            sub_group_name,
-            main_group_code,
-            main_group_name
-        });
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-export const demergeLedger = async (req, res) => {
-    const { ledger_code } = req.params;
-
-    try {
-        await pool.execute(
-            `UPDATE ledgers 
-             SET link_status = 'inactive',
-                 consolidated_sub_group_code = NULL,
-                 consolidated_sub_group_name = NULL,
-                 consolidated_main_group_code = NULL,
-                 consolidated_main_group_name = NULL,
-                 consolidation_status = 'inactive'
-             WHERE ledger_code = ?`,
-            [ledger_code]
-        );
-
-        res.json({
-            message: "Ledger demerged successfully",
-            ledger_code
-        });
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
+/* =========================================
+   GET ACTIVE CONSOLIDATIONS
+========================================= */
 
 export const getActiveConsolidations = async (req, res) => {
+
     try {
+
         const sql = `
             SELECT 
-                l.*,
-                cc.sub_group_code,
+                cc.serial_no,
+                l.ledger_code,
+                l.ledger_name,
                 sg.sub_group_name,
-                cc.main_group_code,
-                mg.main_group_name,
-                cc.status as consolidation_status
-            FROM ledgers l
-            INNER JOIN connect_consolidates cc 
-                ON l.ledger_code = cc.ledger_code 
-                AND cc.status = 'active'
-            LEFT JOIN sub_groups sg 
-                ON cc.sub_group_code = sg.sub_group_code
-            LEFT JOIN main_groups mg 
-                ON cc.main_group_code = mg.main_group_code
+                mg.main_group_name
+            FROM connect_consolidates cc
+            JOIN ledgers l ON l.ledger_code = cc.ledger_code
+            LEFT JOIN sub_groups sg ON sg.sub_group_code = cc.sub_group_code
+            LEFT JOIN main_groups mg ON mg.main_group_code = cc.main_group_code
+            WHERE cc.status = 'active'
             ORDER BY cc.serial_no
         `;
 
-        const [rows] = await pool.query(sql);
-        res.json(rows);
+        const [rows] = await pool.execute(sql);
+
+        res.json({
+            success: true,
+            data: rows
+        });
 
     } catch (error) {
-        console.error("❌ Error fetching active consolidations:", error);
-        res.status(500).json({ error: error.message });
+
+        console.error("Error fetching active consolidations:", error);
+
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+
     }
+
 };
+
+
+/* =========================================
+   GET INACTIVE LEDGERS
+========================================= */
 
 export const getInactiveConsolidations = async (req, res) => {
+
     try {
+
         const sql = `
             SELECT 
-                l.*,
-                'inactive' as consolidation_status
+                l.ledger_code,
+                l.ledger_name
             FROM ledgers l
-            WHERE l.ledger_code NOT IN (
-                SELECT ledger_code FROM connect_consolidates WHERE status = 'active'
-            )
-            OR l.ledger_code IN (
-                SELECT ledger_code FROM connect_consolidates WHERE status = 'inactive'
-            )
-            ORDER BY l.ledger_code
+            LEFT JOIN connect_consolidates cc 
+                ON l.ledger_code = cc.ledger_code
+            WHERE cc.ledger_code IS NULL
+               OR cc.status = 'inactive'
+            ORDER BY l.ledger_name
         `;
 
-        const [rows] = await pool.query(sql);
-        res.json(rows);
+        const [rows] = await pool.execute(sql);
+
+        res.json({
+            success: true,
+            data: rows
+        });
 
     } catch (error) {
-        console.error("❌ Error fetching inactive consolidations:", error);
-        res.status(500).json({ error: error.message });
+
+        console.error("Error fetching inactive consolidations:", error);
+
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+
     }
+
 };
+
 
 export const getLedgerConsolidation = async (req, res) => {
+
+  try {
+
+    const { ledger_code } = req.params;
+
+    const [rows] = await db.query(`
+      SELECT 
+        l.ledger_code,
+        l.ledger_name,
+        cc.sub_group_code,
+        sg.sub_group_name,
+        cc.main_group_code,
+        mg.main_group_name,
+        l.tally_report,
+        l.debit_credit,
+        l.trial_balance,
+        cc.status
+      FROM connect_consolidates cc
+      LEFT JOIN ledgers l 
+        ON l.ledger_code = cc.ledger_code
+      LEFT JOIN sub_groups sg 
+        ON sg.sub_group_code = cc.sub_group_code
+      LEFT JOIN main_groups mg 
+        ON mg.main_group_code = cc.main_group_code
+      WHERE cc.ledger_code = ?
+    `, [ledger_code]);
+
+    res.json(rows);
+
+  } catch (error) {
+
+    console.error("Error fetching ledger consolidation:", error);
+
+    res.status(500).json({
+      message: "Error fetching ledger consolidation"
+    });
+
+  }
+
+};
+
+
+/* =========================================
+   MERGE LEDGER
+========================================= */
+
+export const mergeLedger = async (req, res) => {
+  try {
+
+    console.log("REQUEST BODY:", req.body);
+
+    const { ledger_code, sub_group_code, main_group_code } = req.body;
+
+    if (!ledger_code) {
+      return res.status(400).json({ error: "ledger_code required" });
+    }
+
+    // 1️⃣ Generate serial number
+    const [serialRows] = await db.query(
+      "SELECT MAX(serial_no) AS maxSerial FROM connect_consolidates"
+    );
+
+    const serial_no = (serialRows[0].maxSerial || 0) + 1;
+
+    // 2️⃣ Fetch subgroup name
+    let subGroupName = null;
+
+    if (sub_group_code) {
+      const [subRows] = await db.query(
+        "SELECT sub_group_name FROM sub_groups WHERE sub_group_code=?",
+        [sub_group_code]
+      );
+
+      subGroupName = subRows.length ? subRows[0].sub_group_name : null;
+    }
+
+    // 3️⃣ Fetch main group name
+    let mainGroupName = null;
+
+    if (main_group_code) {
+      const [mainRows] = await db.query(
+        "SELECT main_group_name FROM main_groups WHERE main_group_code=?",
+        [main_group_code]
+      );
+
+      mainGroupName = mainRows.length ? mainRows[0].main_group_name : null;
+    }
+
+    // 4️⃣ Insert into connect_consolidates
+    await db.query(
+      `INSERT INTO connect_consolidates
+       (serial_no, ledger_code, sub_group_code, main_group_code, status)
+       VALUES (?, ?, ?, ?, 'active')`,
+      [serial_no, ledger_code, sub_group_code || null, main_group_code || null]
+    );
+
+    // 5️⃣ Update ledgers table
+    await db.query(
+      `UPDATE ledgers
+       SET consolidated_sub_group_code=?,
+           consolidated_sub_group_name=?,
+           consolidated_main_group_code=?,
+           consolidated_main_group_name=?,
+           consolidation_status='active',
+           link_status='active'
+       WHERE ledger_code=?`,
+      [
+        sub_group_code || null,
+        subGroupName,
+        main_group_code || null,
+        mainGroupName,
+        ledger_code
+      ]
+    );
+
+    res.json({
+      message: "Ledger consolidated successfully"
+    });
+
+  } catch (error) {
+
+    console.error("❌ MERGE ERROR:", error);
+
+    res.status(500).json({
+      error: error.message
+    });
+  }
+};
+
+
+/* =========================================
+   DEMERGE LEDGER
+========================================= */
+
+export const demergeLedger = async (req, res) => {
+
+  try {
+
+    const { ledger_code } = req.params;
+
+    await db.query(
+      `UPDATE ledgers
+       SET consolidated_sub_group_code=NULL,
+           consolidated_sub_group_name=NULL,
+           consolidated_main_group_code=NULL,
+           consolidated_main_group_name=NULL,
+           consolidation_status='inactive'
+       WHERE ledger_code=?`,
+      [ledger_code]
+    );
+
+    await db.query(
+      `DELETE FROM connect_consolidates
+       WHERE ledger_code=?`,
+      [ledger_code]
+    );
+
+    res.json({
+      message: "Ledger demerged successfully"
+    });
+
+  } catch (error) {
+    console.error("Demerge error:", error);
+    res.status(500).json({ error: error.message });
+  }
+
+};
+
+
+/* =========================================
+   DELETE CONSOLIDATION
+========================================= */
+
+export const deleteConsolidation = async (req, res) => {
+
+    const { id } = req.params;
+
     try {
-        const { ledger_code } = req.params;
 
-        const sql = `
-            SELECT * 
-            FROM consolidated_display 
-            WHERE ledger_code = ?
-            ORDER BY serial_no
-        `;
+        const [result] = await pool.execute(
+            "DELETE FROM connect_consolidates WHERE id = ?",
+            [id]
+        );
 
-        const [rows] = await pool.query(sql, [ledger_code]);
-        res.json(rows);
+        if (result.affectedRows === 0) {
+
+            return res.status(404).json({
+                success: false,
+                error: "Consolidation record not found"
+            });
+
+        }
+
+        res.json({
+            success: true,
+            message: "Consolidation deleted successfully"
+        });
 
     } catch (error) {
-        console.error("❌ Error fetching ledger consolidated data:", error);
-        res.status(500).json({ error: error.message });
+
+        console.error("Error deleting consolidation:", error);
+
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+
     }
-};
 
-export const createConsolidation = (req, res) => {
-    const { serial_no, ledger_code, sub_group_code, main_group_code, status } = req.body;
-
-    const query = `
-        INSERT INTO connect_consolidates (serial_no, ledger_code, sub_group_code, main_group_code, status) 
-        VALUES (?, ?, ?, ?, ?)
-    `;
-
-    pool.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status], (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "Consolidation record created successfully", id: results.insertId });
-    });
-};
-
-export const updateConsolidation = (req, res) => {
-    const { id } = req.params;
-    const { serial_no, ledger_code, sub_group_code, main_group_code, status } = req.body;
-
-    const query = `
-        UPDATE connect_consolidates 
-        SET serial_no = ?, ledger_code = ?, sub_group_code = ?, main_group_code = ?, status = ?
-        WHERE id = ?
-    `;
-
-    pool.query(query, [serial_no, ledger_code, sub_group_code, main_group_code, status, id], (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "Consolidation record updated successfully" });
-    });
-};
-
-export const deleteConsolidation = (req, res) => {
-    const { id } = req.params;
-
-    const query = "DELETE FROM connect_consolidates WHERE id = ?";
-
-    pool.query(query, [id], (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "Consolidation record deleted successfully" });
-    });
 };

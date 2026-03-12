@@ -1,30 +1,29 @@
 import express from "express";
+
 import {
-    getAllConsolidated,
-    getConsolidatedByLedger,
-    mergeLedger,
-    demergeLedger,
+    getAllConsolidations,
     getActiveConsolidations,
     getInactiveConsolidations,
-    getLedgerConsolidation,
-    createConsolidation,
-    updateConsolidation,
-    deleteConsolidation
+    mergeLedger,
+    demergeLedger,
+    deleteConsolidation,
+    getLedgerConsolidation
 } from "../controllers/consolidationController.js";
 
 const router = express.Router();
 
-router.get("/", getAllConsolidated);
-router.get("/by-ledger", getConsolidatedByLedger);
+router.get("/", getAllConsolidations);
+
 router.get("/active", getActiveConsolidations);
+
 router.get("/inactive", getInactiveConsolidations);
+
 router.get("/ledger/:ledger_code", getLedgerConsolidation);
 
 router.post("/merge", mergeLedger);
-router.post("/demerge/:ledger_code", demergeLedger);
 
-router.post("/", createConsolidation);
-router.put("/:id", updateConsolidation);
+router.put("/demerge/:ledger_code", demergeLedger);
+
 router.delete("/:id", deleteConsolidation);
 
 export default router;
