@@ -13,6 +13,9 @@ export const createVoucher = async (req, res) => {
             dateTime,
             divisionType,
             transactions,
+            createdBy,
+            verifiedBy,
+            approvedBy
             // totals
         } = req.body;
 
@@ -21,6 +24,13 @@ export const createVoucher = async (req, res) => {
         const formattedDate = `${year}-${month}-${day}`;
 
         console.log("Formatted Date:", formattedDate);
+        const monthNames = [
+            "Jan","Feb","Mar","Apr","May","Jun",
+            "Jul","Aug","Sep","Oct","Nov","Dec"
+        ];
+
+        const voucherMonth = monthNames[parseInt(month)-1];
+        const voucherYear = year;
 
         for (const row of transactions) {
             console.log("➡️ Inserting row:", row);
@@ -29,6 +39,8 @@ export const createVoucher = async (req, res) => {
                 `INSERT INTO vouchers (
                     voucher_number,
                     voucher_date,
+                    voucher_month,
+                    voucher_year,
                     division_type,
                     ledger_code,
                     ledger_name,
@@ -38,11 +50,16 @@ export const createVoucher = async (req, res) => {
                     d4Amount,d4Type,
                     d5Amount,d5Type,
                     totalDr,totalCr,netAmt,
-                    narration
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    narration,
+                    created_by,
+                    verified_by,
+                    approved_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     voucherNumber,
                     formattedDate,
+                    voucherMonth,
+                    voucherYear,
                     divisionType,
                     row.ledgerCode,
                     row.ledgerName,
@@ -59,7 +76,10 @@ export const createVoucher = async (req, res) => {
                     row.totalDr || 0,
                     row.totalCr || 0,
                     row.netAmt || 0,
-                    "Voucher created"
+                    "Voucher created",
+                    createdBy || null,
+                    verifiedBy || null,
+                    approvedBy || null
                 ]
             );
 
@@ -89,17 +109,53 @@ export const createVoucher = async (req, res) => {
 
 export const getAllVouchers = async (req, res) => {
     try {
+
         const [rows] = await pool.query(`
             SELECT 
-                *,
-                DATE_FORMAT(voucher_date, '%Y-%m-%d') as voucher_date_formatted
-            FROM vouchers
-            ORDER BY voucher_number DESC
+                v.*,
+
+                l.ledger_name,
+                l.tally_report,
+                l.debit_credit,
+                l.trial_balance,
+
+                cc.sub_group_code,
+                cc.main_group_code,
+                cc.status,
+
+                sg.sub_group_name,
+                mg.main_group_name,
+
+                DATE_FORMAT(v.voucher_date, '%Y-%m-%d') AS voucher_date_formatted,
+                DATE_FORMAT(v.created_at, '%Y-%m-%d %H:%i:%s') AS created_at_formatted,
+
+                CASE
+                    WHEN v.approved_by IS NOT NULL THEN 'Approved'
+                    WHEN v.verified_by IS NOT NULL THEN 'Verified'
+                    ELSE 'Created'
+                END AS voucher_status
+
+            FROM vouchers v
+
+            LEFT JOIN ledgers l
+                ON v.ledger_code = l.ledger_code
+
+            LEFT JOIN connect_consolidates cc
+                ON v.ledger_code = cc.ledger_code
+
+            LEFT JOIN sub_groups sg
+                ON cc.sub_group_code = sg.sub_group_code
+
+            LEFT JOIN main_groups mg
+                ON cc.main_group_code = mg.main_group_code
+
+            ORDER BY v.voucher_number DESC
         `);
 
         const formattedRows = rows.map(row => ({
             ...row,
-            voucher_date: row.voucher_date_formatted || row.voucher_date
+            voucher_date: row.voucher_date_formatted || row.voucher_date,
+            created_at: row.created_at_formatted || row.created_at
         }));
 
         res.json({
@@ -109,12 +165,15 @@ export const getAllVouchers = async (req, res) => {
         });
 
     } catch (error) {
+
         console.error("❌ Error fetching vouchers:", error);
+
         res.status(500).json({
             success: false,
             message: "Failed to fetch vouchers",
             error: error.message
         });
+
     }
 };
 
@@ -193,7 +252,7 @@ export const updateVoucher = async (req, res) => {
         await connection.beginTransaction();
 
         const voucherNumber = req.params.voucherNumber;
-        const { dateTime, divisionType, transactions } = req.body;
+        const { divisionType, transactions, month, year, createdBy, verifiedBy, approvedBy } = req.body;
 
         const [existingVoucher] = await connection.query(
             `SELECT voucher_date FROM vouchers WHERE voucher_number = ? LIMIT 1`,
@@ -205,7 +264,6 @@ export const updateVoucher = async (req, res) => {
         }
 
         const formattedDate = existingVoucher[0].voucher_date;
-
         console.log("Using existing voucher date:", formattedDate);
 
 
@@ -224,6 +282,8 @@ export const updateVoucher = async (req, res) => {
                 `INSERT INTO vouchers (
                     voucher_number,
                     voucher_date,
+                    voucher_month,
+                    voucher_year,
                     division_type,
                     ledger_code,
                     ledger_name,
@@ -233,11 +293,16 @@ export const updateVoucher = async (req, res) => {
                     d4Amount,d4Type,
                     d5Amount,d5Type,
                     totalDr,totalCr,netAmt,
-                    narration
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    narration,
+                    created_by,
+                    verified_by,
+                    approved_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     voucherNumber,
                     formattedDate,
+                    month,
+                    year,
                     divisionType,
                     row.ledgerCode,
                     row.ledgerName,
@@ -254,7 +319,10 @@ export const updateVoucher = async (req, res) => {
                     row.totalDr || 0,
                     row.totalCr || 0,
                     row.netAmt || 0,
-                    "Voucher updated"
+                    "Voucher updated",
+                    createdBy || null,
+                    verifiedBy || null,
+                    approvedBy || null
                 ]
             );
 
@@ -287,7 +355,14 @@ export const updateVoucherByLedger = async (req, res) => {
     console.log("📥 Update by ledger request:", req.body);
 
     const { ledger } = req.params;
-    const { divisionType, transactions } = req.body;
+
+    const {
+        divisionType,
+        transactions,
+        createdBy,
+        verifiedBy,
+        approvedBy
+    } = req.body;
 
     const connection = await pool.getConnection();
 
@@ -295,9 +370,8 @@ export const updateVoucherByLedger = async (req, res) => {
 
         await connection.beginTransaction();
 
-        // Check ledger exists
         const [existingRows] = await connection.query(
-            `SELECT voucher_number, voucher_date 
+            `SELECT voucher_number, voucher_date, voucher_month, voucher_year
              FROM vouchers 
              WHERE ledger_name = ?`,
             [ledger]
@@ -306,6 +380,9 @@ export const updateVoucherByLedger = async (req, res) => {
         if (existingRows.length === 0) {
             throw new Error("Ledger vouchers not found");
         }
+
+        const voucherMonth = existingRows[0].voucher_month;
+        const voucherYear = existingRows[0].voucher_year;
 
         console.log(`Found ${existingRows.length} rows for ledger: ${ledger}`);
 
@@ -326,6 +403,8 @@ export const updateVoucherByLedger = async (req, res) => {
                 `INSERT INTO vouchers (
                     voucher_number,
                     voucher_date,
+                    voucher_month,
+                    voucher_year,
                     division_type,
                     ledger_code,
                     ledger_name,
@@ -335,11 +414,16 @@ export const updateVoucherByLedger = async (req, res) => {
                     d4Amount,d4Type,
                     d5Amount,d5Type,
                     totalDr,totalCr,netAmt,
-                    narration
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    narration,
+                    created_by,
+                    verified_by,
+                    approved_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     row.voucherNumber || existingRows[0].voucher_number,
                     existingRows[0].voucher_date,
+                    voucherMonth,
+                    voucherYear,
                     divisionType,
                     row.ledgerCode,
                     row.ledgerName,
@@ -363,7 +447,11 @@ export const updateVoucherByLedger = async (req, res) => {
                     row.totalCr || 0,
                     row.netAmt || 0,
 
-                    "Ledger voucher updated"
+                    "Ledger voucher updated",
+
+                    createdBy || null,
+                    verifiedBy || null,
+                    approvedBy || null
                 ]
             );
 
